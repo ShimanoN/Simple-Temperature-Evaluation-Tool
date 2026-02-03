@@ -9,7 +9,8 @@ void IO_Task() {
   G.D_RawPV = thermocouple.readCelsius();
 
   if (!isnan(G.D_RawPV)) {
-    G.D_FilteredPV = (G.D_FilteredPV * 0.9) + (G.D_RawPV * 0.1);
+    // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
+    G.D_FilteredPV = (G.D_FilteredPV * (1.0f - FILTER_ALPHA)) + (G.D_RawPV * FILTER_ALPHA);
   }
 
   M5.update();
@@ -35,6 +36,9 @@ void Logic_Task() {
       case STATE_RUN:
         if (G.D_Count > 0) {
           G.D_Average = G.D_Sum / G.D_Count;
+        } else {
+          // サンプル数0の場合は現在値を使用
+          G.D_Average = G.D_FilteredPV;
         }
         G.M_CurrentState = STATE_RESULT;
         break;
