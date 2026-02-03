@@ -26,4 +26,4 @@ M5Stack Basic V2.7 + K型熱電対を使用した、現場用簡易温度評価�
 - Framework: Arduino (ESP32)
 
 ---
-Developed by Shimane / Powered by Antigravity.
+Developed by Shimano / Powered by Antigravity.
