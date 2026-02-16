@@ -85,6 +85,78 @@
 				"$gcc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Run native unit tests",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"test",
+				"-e",
+				"native"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "PlatformIO: Build (m5stack)",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"m5stack"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			]
+		},
+		{
+			"label": "PlatformIO: Build (m5stack)",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"m5stack"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			]
+		},
+		{
+			"label": "PlatformIO: Clean & Build",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"--target",
+				"clean",
+				"-e",
+				"m5stack"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			]
+		},
+		{
+			"label": "PlatformIO: Build (m5stack)",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"m5stack"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			]
 		}
 	]
 }

@@ -1,39 +1,29 @@
 #include "Global.h"
+#include "IOController.h"
+#include "MeasurementCore.h"
+#include "DisplayManager.h"
 
 // 実体の作成（ここで場所を確保する）
 GlobalData G;
-// ★ハードウェアSPIを使用（LCDとバス共有、CSピンのみで切り替え）
-// ソフトウェアSPI(ビットバンギング)はLCDのSPIバスを破壊するため使用不可
-Adafruit_MAX31855 thermocouple(MAX31855_CS);
+
+// 各レイヤーのコントローラー
+static IOController g_io(MAX31855_CS, FILTER_ALPHA);
+static MeasurementCore g_measure;
+static DisplayManager g_display;
 
 // ========== IO Layer (10ms周期) ==========
 void IO_Task() {
-  // 温度読み取りは500msに1回（MAX31855の変換時間に合わせて）
-  static unsigned long lastTcRead = 0;
-  unsigned long now = millis();
-
-  if (now - lastTcRead >= 500) {
-    lastTcRead = now;
-    G.D_RawPV = thermocouple.readCelsius();
-  }
-
-  if (!isnan(G.D_RawPV)) {
-    // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
-    G.D_FilteredPV = (G.D_FilteredPV * (1.0f - FILTER_ALPHA)) + (G.D_RawPV * FILTER_ALPHA);
-  }
-
-  M5.update();
-  bool btnNow = M5.BtnA.isPressed();
-  if (btnNow && !G.M_BtnA_Prev) {
+  g_io.tick();
+  
+  // グローバル変数に結果を同期（後方互換性のため）
+  G.D_FilteredPV = g_io.getFilteredTemperature();
+  
+  if (g_io.isButtonAPressed()) {
     G.M_BtnA_Pressed = true;
   }
-  G.M_BtnA_Prev = btnNow;
 }
 
-#include "MeasurementCore.h"
-
 // ========== Logic Layer (50ms周期) ==========
-static MeasurementCore g_measure;
 
 void Logic_Task() {
   // MeasurementCore に処理を委譲
@@ -63,50 +53,20 @@ void Logic_Task() {
 
 // ========== UI Layer (200ms周期) ==========
 void UI_Task() {
-  // 状態変化を検出して画面をクリア
-  static State prevState = STATE_IDLE;
-  if (G.M_CurrentState != prevState) {
-    M5.Lcd.fillScreen(BLACK);
-    prevState = G.M_CurrentState;
-  }
+  g_display.update(
+    G.M_CurrentState,
+    G.D_FilteredPV,
+    G.D_Count,
+    G.D_Average
+  );
+}
 
+// ========== 初期化 ==========
+void initTasks() {
+  g_io.begin();
+  g_display.begin();
+}
 
-
-  // 画面描画（状態変化時のクリア後に描画）
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setTextColor(WHITE, BLACK);
-
-  M5.Lcd.print("STATE: ");
-  switch (G.M_CurrentState) {
-    case STATE_IDLE:   M5.Lcd.println("IDLE  ");   break;
-    case STATE_RUN:    M5.Lcd.println("RUN   ");   break;
-    case STATE_RESULT: M5.Lcd.println("RESULT");   break;
-  }
-  M5.Lcd.println();
-
-  M5.Lcd.print("Temp: ");
-  if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.println("ERROR   ");
-  } else {
-    M5.Lcd.print(G.D_FilteredPV, 1);
-    M5.Lcd.println(" C      ");
-  }
-  M5.Lcd.println();
-
-  if (G.M_CurrentState == STATE_RUN) {
-    M5.Lcd.print("Samples: ");
-    M5.Lcd.print(G.D_Count);
-    M5.Lcd.println("      ");
-  } else if (G.M_CurrentState == STATE_RESULT) {
-    M5.Lcd.print("Average: ");
-    M5.Lcd.print(G.D_Average, 1);
-    M5.Lcd.println(" C      ");
-  } else {
-    M5.Lcd.println("                    ");
-  }
-
-  M5.Lcd.setCursor(0, 220);
-  M5.Lcd.setTextSize(1);
-  M5.Lcd.println("[BtnA] Start/Stop/Reset");
+float getInitialTemperature() {
+  return g_io.getFilteredTemperature();
 }

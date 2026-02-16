@@ -44,11 +44,5 @@ struct GlobalData {
 
 // 他のファイルから見えるように宣言（実体はどこか1つのファイルで作る）
 extern GlobalData G;
-extern Adafruit_MAX31855 thermocouple;
-
-// タスク関数の予約票
-void IO_Task();
-void Logic_Task();
-void UI_Task();
 
 #endif

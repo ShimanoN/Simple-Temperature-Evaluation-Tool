@@ -1,4 +1,5 @@
 #include "Global.h"
+#include "Tasks.h"
 
 unsigned long T_IO_Last    = 0;
 unsigned long T_Logic_Last = 0;
@@ -30,12 +31,16 @@ void setup() {
 
   // 初期化
   initGlobalData();
+  initTasks();  // コントローラーの初期化
 
   // MAX31855接続確認
+  // IOControllerが内部的に500msごとに読み取るため、複数回チェック
   float testTemp = NAN;
   const int MAX_RETRY = 5;
   for (int i = 0; i < MAX_RETRY; ++i) {
-    testTemp = thermocouple.readCelsius();
+    // g_ioにtickを呼び出して温度を読み取らせる
+    IO_Task();
+    testTemp = getInitialTemperature();
     Serial.print("MAX try "); Serial.print(i); Serial.print(" -> ");
     if (isnan(testTemp)) Serial.println("nan"); else Serial.println(testTemp, 3);
     if (!isnan(testTemp)) break;

@@ -1,5 +1,5 @@
 #include <unity.h>
-#include "../..\src\MeasurementCore.h"
+#include "MeasurementCore.h"
 
 void test_initial_state(void) {
   MeasurementCore c;
