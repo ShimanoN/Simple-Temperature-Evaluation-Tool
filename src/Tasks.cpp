@@ -1,22 +1,20 @@
 #include "Global.h"
-#include <SPI.h>
 
 // 実体の作成（ここで場所を確保する）
 GlobalData G;
-Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
+// ★ハードウェアSPIを使用（LCDとバス共有、CSピンのみで切り替え）
+// ソフトウェアSPI(ビットバンギング)はLCDのSPIバスを破壊するため使用不可
+Adafruit_MAX31855 thermocouple(MAX31855_CS);
 
 // ========== IO Layer (10ms周期) ==========
 void IO_Task() {
-  // 温度読み取りは500msに1回（SPI競合を最小化）
+  // 温度読み取りは500msに1回（MAX31855の変換時間に合わせて）
   static unsigned long lastTcRead = 0;
   unsigned long now = millis();
 
   if (now - lastTcRead >= 500) {
     lastTcRead = now;
     G.D_RawPV = thermocouple.readCelsius();
-    // ★ソフトウェアSPIがGPIO18/23のピンモードを壊すので、
-    //   ハードウェアSPIを再初期化してLCD描画を復元する
-    SPI.begin(18, 19, 23, -1);
   }
 
   // Debug: print raw reading

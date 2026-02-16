@@ -5,9 +5,8 @@
 #include <Adafruit_MAX31855.h>
 
 // --- ピン定義 ---
-#define MAX31855_CS   5
-#define MAX31855_SCK  18
-#define MAX31855_MISO 23
+#define MAX31855_CS   5    // チップセレクトのみ使用（ハードウェアSPIでLCDとバス共有）
+// SCK=GPIO18, MISO=GPIO19 はハードウェアSPIが自動管理
 
 // --- タイマー周期 (ms) ---
 // millis()オーバーフロー対応済み (unsigned演算の性質を利用)
