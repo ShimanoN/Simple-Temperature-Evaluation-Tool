@@ -8,7 +8,7 @@ Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
 void IO_Task() {
   // DEBUG: temporarily disable MAX31855 SPI access to isolate display issues
   // Set TEST_DISPLAY_ONLY to 1 to use a fake sensor value and avoid touching SPI lines.
-#define TEST_DISPLAY_ONLY 1
+#define TEST_DISPLAY_ONLY 0
 #if TEST_DISPLAY_ONLY
   static float fakeTemp = 25.0f;
   G.D_RawPV = fakeTemp;
