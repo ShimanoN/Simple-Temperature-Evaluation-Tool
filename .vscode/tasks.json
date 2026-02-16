@@ -157,6 +157,21 @@
 			"problemMatcher": [
 				"$platformio"
 			]
+		},
+		{
+			"label": "Build (refactored)",
+			"type": "shell",
+			"command": "C:\\.platformio\\penv\\Scripts\\platformio.exe",
+			"args": [
+				"run",
+				"-e",
+				"m5stack"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "build"
 		}
 	]
 }
