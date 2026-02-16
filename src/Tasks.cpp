@@ -99,36 +99,38 @@ void UI_Task() {
   Serial.print(" Temp:");
   if (isnan(G.D_FilteredPV)) Serial.println("nan"); else Serial.println(G.D_FilteredPV, 2);
 
-  // 画面描画
-  M5.Lcd.fillScreen(BLACK);  // 毎回クリア（ちらつき防止のため高速）
+  // 画面描画（状態変化時のクリア後に描画）
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(2);
   M5.Lcd.setTextColor(WHITE, BLACK);
 
   M5.Lcd.print("STATE: ");
   switch (G.M_CurrentState) {
-    case STATE_IDLE:   M5.Lcd.println("IDLE");   break;
-    case STATE_RUN:    M5.Lcd.println("RUN");    break;
-    case STATE_RESULT: M5.Lcd.println("RESULT"); break;
+    case STATE_IDLE:   M5.Lcd.println("IDLE  ");   break;
+    case STATE_RUN:    M5.Lcd.println("RUN   ");   break;
+    case STATE_RESULT: M5.Lcd.println("RESULT");   break;
   }
   M5.Lcd.println();
 
   M5.Lcd.print("Temp: ");
   if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.println("ERROR");
+    M5.Lcd.println("ERROR   ");
   } else {
     M5.Lcd.print(G.D_FilteredPV, 1);
-    M5.Lcd.println(" C");
+    M5.Lcd.println(" C      ");
   }
   M5.Lcd.println();
 
   if (G.M_CurrentState == STATE_RUN) {
     M5.Lcd.print("Samples: ");
-    M5.Lcd.println(G.D_Count);
+    M5.Lcd.print(G.D_Count);
+    M5.Lcd.println("      ");
   } else if (G.M_CurrentState == STATE_RESULT) {
     M5.Lcd.print("Average: ");
     M5.Lcd.print(G.D_Average, 1);
-    M5.Lcd.println(" C");
+    M5.Lcd.println(" C      ");
+  } else {
+    M5.Lcd.println("                    ");
   }
 
   M5.Lcd.setCursor(0, 220);
