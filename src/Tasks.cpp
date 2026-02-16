@@ -1,4 +1,5 @@
 #include "Global.h"
+#include <SPI.h>
 
 // 実体の作成（ここで場所を確保する）
 GlobalData G;
@@ -6,17 +7,17 @@ Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
 
 // ========== IO Layer (10ms周期) ==========
 void IO_Task() {
-  // DEBUG: temporarily disable MAX31855 SPI access to isolate display issues
-  // Set TEST_DISPLAY_ONLY to 1 to use a fake sensor value and avoid touching SPI lines.
-#define TEST_DISPLAY_ONLY 0
-#if TEST_DISPLAY_ONLY
-  static float fakeTemp = 25.0f;
-  G.D_RawPV = fakeTemp;
-  fakeTemp += 0.1f;
-  if (fakeTemp > 35.0f) fakeTemp = 25.0f;
-#else
-  G.D_RawPV = thermocouple.readCelsius();
-#endif
+  // 温度読み取りは500msに1回（SPI競合を最小化）
+  static unsigned long lastTcRead = 0;
+  unsigned long now = millis();
+
+  if (now - lastTcRead >= 500) {
+    lastTcRead = now;
+    G.D_RawPV = thermocouple.readCelsius();
+    // ★ソフトウェアSPIがGPIO18/23のピンモードを壊すので、
+    //   ハードウェアSPIを再初期化してLCD描画を復元する
+    SPI.begin(18, 19, 23, -1);
+  }
 
   // Debug: print raw reading
   Serial.print("IO_Task - RawPV: ");

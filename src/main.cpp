@@ -1,4 +1,5 @@
 #include "Global.h"
+#include <SPI.h>
 
 unsigned long T_IO_Last    = 0;
 unsigned long T_Logic_Last = 0;
@@ -36,6 +37,8 @@ void setup() {
   const int MAX_RETRY = 5;
   for (int i = 0; i < MAX_RETRY; ++i) {
     testTemp = thermocouple.readCelsius();
+    // ★SPI復元: ソフトウェアSPIがLCD用ピンを壊すので再初期化
+    SPI.begin(18, 19, 23, -1);
     Serial.print("MAX try "); Serial.print(i); Serial.print(" -> ");
     if (isnan(testTemp)) Serial.println("nan"); else Serial.println(testTemp, 3);
     if (!isnan(testTemp)) break;
@@ -57,15 +60,10 @@ void setup() {
     Serial.print("MAX31855 OK: "); Serial.println(testTemp, 3);
   }
   delay(1000);
+  // SPI復元後に画面クリアして通常UI開始
+  SPI.begin(18, 19, 23, -1);
   M5.Lcd.fillScreen(BLACK);
-  // Quick visible UI test on startup
-  M5.Lcd.fillScreen(WHITE);
-  M5.Lcd.setTextColor(BLACK, WHITE);
-  M5.Lcd.setTextSize(4);
-  M5.Lcd.setCursor(10, 100);
-  M5.Lcd.println("UI TEST");
-  delay(1200);
-  M5.Lcd.fillScreen(BLACK);
+  Serial.println("Setup complete - entering loop");
 }
 
 void loop() {
