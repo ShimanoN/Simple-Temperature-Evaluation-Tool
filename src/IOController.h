@@ -12,6 +12,8 @@ public:
   void tick();   // 10ms周期で呼び出し
   
   float getFilteredTemperature() const { return filteredPV_; }
+  float getRawTemperature() const { return rawPV_; }
+  bool isTemperatureValid() const;
   bool isButtonAPressed();  // A ボタンの立ち上がりエッジを検出（1回だけtrue）
   
 private:

@@ -14,6 +14,7 @@ IOController::IOController(uint8_t csPin, float filterAlpha)
 
 void IOController::begin() {
   filteredPV_ = 0.0f;
+  rawPV_ = NAN;
   lastReadTime_ = 0;
   btnAPrev_ = false;
   btnAPressed_ = false;
@@ -45,4 +46,12 @@ bool IOController::isButtonAPressed() {
   bool pressed = btnAPressed_;
   btnAPressed_ = false;  // 読み取り後にクリア
   return pressed;
+}
+
+bool IOController::isTemperatureValid() const {
+  return !std::isnan(rawPV_);
+}
+
+float IOController::getRawTemperature() const {
+  return rawPV_;
 }

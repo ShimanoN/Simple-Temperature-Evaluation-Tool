@@ -68,5 +68,11 @@ void initTasks() {
 }
 
 float getInitialTemperature() {
-  return g_io.getFilteredTemperature();
+  // 初期化時のセンサ存在チェックにはフィルタ後の値ではなく
+  // 生の読み取り値の有効性を用いる。フィルタは初期値を非NaNにするため
+  // 誤検出を招くため、最初の有効なreadCelsius()が得られるまでNaNを返す。
+  if (g_io.isTemperatureValid()) {
+    return g_io.getRawTemperature();
+  }
+  return NAN;
 }
