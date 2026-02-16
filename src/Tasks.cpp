@@ -17,10 +17,6 @@ void IO_Task() {
     G.D_RawPV = thermocouple.readCelsius();
   }
 
-  // Debug: print raw reading
-  Serial.print("IO_Task - RawPV: ");
-  if (isnan(G.D_RawPV)) Serial.println("nan"); else Serial.println(G.D_RawPV, 3);
-
   if (!isnan(G.D_RawPV)) {
     // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
     G.D_FilteredPV = (G.D_FilteredPV * (1.0f - FILTER_ALPHA)) + (G.D_RawPV * FILTER_ALPHA);
@@ -30,22 +26,13 @@ void IO_Task() {
   bool btnNow = M5.BtnA.isPressed();
   if (btnNow && !G.M_BtnA_Prev) {
     G.M_BtnA_Pressed = true;
-    Serial.println("*** IO_Task - BtnA EDGE DETECTED! Flag set to TRUE ***");
   }
-  // Debug: print raw button states (A,B,C)
-  Serial.print("Btns A B C: ");
-  Serial.print(M5.BtnA.isPressed()); Serial.print(' ');
-  Serial.print(M5.BtnB.isPressed()); Serial.print(' ');
-  Serial.print(M5.BtnC.isPressed());
-  Serial.print(" | BtnA_Pressed flag: ");
-  Serial.println(G.M_BtnA_Pressed ? "TRUE" : "false");
   G.M_BtnA_Prev = btnNow;
 }
 
 // ========== Logic Layer (50ms周期) ==========
 void Logic_Task() {
   if (G.M_BtnA_Pressed) {
-    Serial.println("*** Logic_Task - Processing button press! ***");
     G.M_BtnA_Pressed = false;
 
     switch (G.M_CurrentState) {
@@ -88,15 +75,7 @@ void UI_Task() {
     prevState = G.M_CurrentState;
   }
 
-  // Debug: report UI update over serial
-  Serial.print("UI_Task - State:");
-  switch (G.M_CurrentState) {
-    case STATE_IDLE:   Serial.print("IDLE");   break;
-    case STATE_RUN:    Serial.print("RUN");    break;
-    case STATE_RESULT: Serial.print("RESULT"); break;
-  }
-  Serial.print(" Temp:");
-  if (isnan(G.D_FilteredPV)) Serial.println("nan"); else Serial.println(G.D_FilteredPV, 2);
+
 
   // 画面描画（状態変化時のクリア後に描画）
   M5.Lcd.setCursor(0, 0);
@@ -135,5 +114,4 @@ void UI_Task() {
   M5.Lcd.setCursor(0, 220);
   M5.Lcd.setTextSize(1);
   M5.Lcd.println("[BtnA] Start/Stop/Reset");
-  Serial.println("UI_Task - drawn to LCD");
 }

@@ -94,9 +94,8 @@ temp_eval_tool/
 #include <Adafruit_MAX31855.h>
 
 // --- ピン定義 ---
-#define MAX31855_CS   5
-#define MAX31855_SCK  18
-#define MAX31855_MISO 23
+#define MAX31855_CS   5    // チップセレクトのみ使用（ハードウェアSPIでLCDとバス共有）
+// SCK=GPIO18, MISO=GPIO19 はハードウェアSPIが自動管理
 
 // --- タイマー周期 (ms) ---
 constexpr unsigned long IO_CYCLE_MS    = 10UL;   // IO層: センサ読取、ボタン入力
@@ -149,7 +148,7 @@ void UI_Task();
 
 // グローバル変数の実体
 GlobalData G;
-Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
+Adafruit_MAX31855 thermocouple(MAX31855_CS);
 
 // ========== IO Layer (10ms周期) ==========
 void IO_Task() {
