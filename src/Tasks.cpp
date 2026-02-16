@@ -30,40 +30,35 @@ void IO_Task() {
   G.M_BtnA_Prev = btnNow;
 }
 
+#include "MeasurementCore.h"
+
 // ========== Logic Layer (50ms周期) ==========
+static MeasurementCore g_measure;
+
 void Logic_Task() {
+  // MeasurementCore に処理を委譲
   if (G.M_BtnA_Pressed) {
     G.M_BtnA_Pressed = false;
-
-    switch (G.M_CurrentState) {
-      case STATE_IDLE:
-        G.D_Sum           = 0.0;
-        G.D_Count         = 0;
-        G.M_CurrentState  = STATE_RUN;
-        break;
-
-      case STATE_RUN:
-        if (G.D_Count > 0) {
-          G.D_Average = G.D_Sum / G.D_Count;
-        } else {
-          // サンプル数0の場合は現在値を使用
-          G.D_Average = G.D_FilteredPV;
-        }
-        G.M_CurrentState = STATE_RESULT;
-        break;
-
-      case STATE_RESULT:
-        G.M_CurrentState = STATE_IDLE;
-        break;
-    }
+    g_measure.onButtonPress();
   }
 
-  if (G.M_CurrentState == STATE_RUN) {
-    if (!isnan(G.D_FilteredPV)) {
-      G.D_Sum += G.D_FilteredPV;
-      G.D_Count++;
-    }
+  // 周期 tick（RUN 中なら積算される）
+  g_measure.tick(G.D_FilteredPV);
+
+  // MeasurementCore の状態をグローバルに反映
+  switch (g_measure.getState()) {
+    case MeasurementCore::IDLE:
+      G.M_CurrentState = STATE_IDLE; break;
+    case MeasurementCore::RUN:
+      G.M_CurrentState = STATE_RUN; break;
+    case MeasurementCore::RESULT:
+      G.M_CurrentState = STATE_RESULT; break;
   }
+
+  // 集計値を同期
+  G.D_Sum     = g_measure.getSum();
+  G.D_Count   = g_measure.getCount();
+  G.D_Average = g_measure.getAverage();
 }
 
 // ========== UI Layer (200ms周期) ==========
