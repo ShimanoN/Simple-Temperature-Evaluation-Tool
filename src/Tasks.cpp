@@ -8,6 +8,10 @@ Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
 void IO_Task() {
   G.D_RawPV = thermocouple.readCelsius();
 
+  // Debug: print raw reading
+  Serial.print("IO_Task - RawPV: ");
+  if (isnan(G.D_RawPV)) Serial.println("nan"); else Serial.println(G.D_RawPV, 3);
+
   if (!isnan(G.D_RawPV)) {
     // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
     G.D_FilteredPV = (G.D_FilteredPV * (1.0f - FILTER_ALPHA)) + (G.D_RawPV * FILTER_ALPHA);
@@ -17,6 +21,7 @@ void IO_Task() {
   bool btnNow = M5.BtnA.isPressed();
   if (btnNow && !G.M_BtnA_Prev) {
     G.M_BtnA_Pressed = true;
+    Serial.println("IO_Task - BtnA edge detected");
   }
   G.M_BtnA_Prev = btnNow;
 }
@@ -62,6 +67,19 @@ void UI_Task() {
   M5.Lcd.fillScreen(BLACK);
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(2);
+
+  // Ensure high-contrast text
+  M5.Lcd.setTextColor(WHITE, BLACK);
+
+  // Debug: report UI update over serial
+  Serial.print("UI_Task - State:");
+  switch (G.M_CurrentState) {
+    case STATE_IDLE:   Serial.print("IDLE");   break;
+    case STATE_RUN:    Serial.print("RUN");    break;
+    case STATE_RESULT: Serial.print("RESULT"); break;
+  }
+  Serial.print(" Temp:");
+  if (isnan(G.D_FilteredPV)) Serial.println("nan"); else Serial.println(G.D_FilteredPV, 2);
 
   M5.Lcd.print("STATE: ");
   switch (G.M_CurrentState) {
