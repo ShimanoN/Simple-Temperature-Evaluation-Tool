@@ -31,19 +31,22 @@ void IO_Task() {
   bool btnNow = M5.BtnA.isPressed();
   if (btnNow && !G.M_BtnA_Prev) {
     G.M_BtnA_Pressed = true;
-    Serial.println("IO_Task - BtnA edge detected");
+    Serial.println("*** IO_Task - BtnA EDGE DETECTED! Flag set to TRUE ***");
   }
   // Debug: print raw button states (A,B,C)
   Serial.print("Btns A B C: ");
   Serial.print(M5.BtnA.isPressed()); Serial.print(' ');
   Serial.print(M5.BtnB.isPressed()); Serial.print(' ');
-  Serial.println(M5.BtnC.isPressed());
+  Serial.print(M5.BtnC.isPressed());
+  Serial.print(" | BtnA_Pressed flag: ");
+  Serial.println(G.M_BtnA_Pressed ? "TRUE" : "false");
   G.M_BtnA_Prev = btnNow;
 }
 
 // ========== Logic Layer (50ms周期) ==========
 void Logic_Task() {
   if (G.M_BtnA_Pressed) {
+    Serial.println("*** Logic_Task - Processing button press! ***");
     G.M_BtnA_Pressed = false;
 
     switch (G.M_CurrentState) {
@@ -79,8 +82,6 @@ void Logic_Task() {
 
 // ========== UI Layer (200ms周期) ==========
 void UI_Task() {
-  M5.update();
-  
   // 状態変化を検出して画面をクリア
   static State prevState = STATE_IDLE;
   if (G.M_CurrentState != prevState) {
