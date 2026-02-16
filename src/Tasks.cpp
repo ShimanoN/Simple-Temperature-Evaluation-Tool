@@ -79,9 +79,14 @@ void Logic_Task() {
 
 // ========== UI Layer (200ms周期) ==========
 void UI_Task() {
-  M5.Lcd.fillScreen(BLACK);
+  // Ensure M5 updates and attempt visible screen toggle to verify drawing
+  M5.update();
+  static bool toggle = false;
+  toggle = !toggle;
+  M5.Lcd.fillScreen(toggle ? BLACK : BLUE);
   M5.Lcd.setCursor(0, 0);
   M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(WHITE, toggle ? BLACK : BLUE);
 
   // Ensure high-contrast text
   M5.Lcd.setTextColor(WHITE, BLACK);
@@ -125,4 +130,5 @@ void UI_Task() {
   M5.Lcd.setCursor(0, 220);
   M5.Lcd.setTextSize(1);
   M5.Lcd.println("[BtnA] Start/Stop/Reset");
+  Serial.println("UI_Task - drawn to LCD");
 }
