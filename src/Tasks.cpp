@@ -79,17 +79,14 @@ void Logic_Task() {
 
 // ========== UI Layer (200ms周期) ==========
 void UI_Task() {
-  // Ensure M5 updates and attempt visible screen toggle to verify drawing
   M5.update();
-  static bool toggle = false;
-  toggle = !toggle;
-  M5.Lcd.fillScreen(toggle ? BLACK : BLUE);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setTextColor(WHITE, toggle ? BLACK : BLUE);
-
-  // Ensure high-contrast text
-  M5.Lcd.setTextColor(WHITE, BLACK);
+  
+  // 状態変化を検出して画面をクリア
+  static State prevState = STATE_IDLE;
+  if (G.M_CurrentState != prevState) {
+    M5.Lcd.fillScreen(BLACK);
+    prevState = G.M_CurrentState;
+  }
 
   // Debug: report UI update over serial
   Serial.print("UI_Task - State:");
@@ -100,6 +97,12 @@ void UI_Task() {
   }
   Serial.print(" Temp:");
   if (isnan(G.D_FilteredPV)) Serial.println("nan"); else Serial.println(G.D_FilteredPV, 2);
+
+  // 画面描画
+  M5.Lcd.fillScreen(BLACK);  // 毎回クリア（ちらつき防止のため高速）
+  M5.Lcd.setCursor(0, 0);
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setTextColor(WHITE, BLACK);
 
   M5.Lcd.print("STATE: ");
   switch (G.M_CurrentState) {

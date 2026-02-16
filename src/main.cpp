@@ -24,7 +24,7 @@ void setup() {
   M5.Lcd.println("Temperature Eval Tool");
   M5.Lcd.println("Refactored Version");
   M5.Lcd.println("");
-  M5.Lcd.println("Checking MAX31855...");
+  Serial.println("Checking MAX31855...");
 
   delay(1000);
 
