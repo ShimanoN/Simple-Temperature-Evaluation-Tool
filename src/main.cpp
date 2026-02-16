@@ -30,16 +30,26 @@ void setup() {
   initGlobalData();
 
   // MAX31855接続確認
-  float testTemp = thermocouple.readCelsius();
-  if (isnan(testTemp)) {
-    M5.Lcd.println("ERROR: MAX31855 not found!");
-    while(1) { delay(1000); }
+  float testTemp = NAN;
+  const int MAX_RETRY = 5;
+  for (int i = 0; i < MAX_RETRY; ++i) {
+    testTemp = thermocouple.readCelsius();
+    if (!isnan(testTemp)) break;
+    M5.Lcd.print('.');
+    delay(500);
   }
 
-  // フィルタ初期値を実測値で初期化 (収束時間短縮)
-  G.D_FilteredPV = testTemp;
-
-  M5.Lcd.println("MAX31855 OK");
+  if (isnan(testTemp)) {
+    M5.Lcd.println();
+    M5.Lcd.println("ERROR: MAX31855 not found!");
+    M5.Lcd.println("Check wiring, VCC (3.3V), GND, CS/SCK/MISO pins");
+    // センサ未接続でもシステムは継続動作させる（UI に ERROR 表示）
+    G.D_FilteredPV = NAN;
+  } else {
+    // フィルタ初期値を実測値で初期化 (収束時間短縮)
+    G.D_FilteredPV = testTemp;
+    M5.Lcd.println("MAX31855 OK");
+  }
   delay(1000);
   M5.Lcd.fillScreen(BLACK);
 }
