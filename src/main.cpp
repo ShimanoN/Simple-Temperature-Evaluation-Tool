@@ -58,6 +58,14 @@ void setup() {
   }
   delay(1000);
   M5.Lcd.fillScreen(BLACK);
+  // Quick visible UI test on startup
+  M5.Lcd.fillScreen(WHITE);
+  M5.Lcd.setTextColor(BLACK, WHITE);
+  M5.Lcd.setTextSize(4);
+  M5.Lcd.setCursor(10, 100);
+  M5.Lcd.println("UI TEST");
+  delay(1200);
+  M5.Lcd.fillScreen(BLACK);
 }
 
 void loop() {

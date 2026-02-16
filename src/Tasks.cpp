@@ -23,6 +23,11 @@ void IO_Task() {
     G.M_BtnA_Pressed = true;
     Serial.println("IO_Task - BtnA edge detected");
   }
+  // Debug: print raw button states (A,B,C)
+  Serial.print("Btns A B C: ");
+  Serial.print(M5.BtnA.isPressed()); Serial.print(' ');
+  Serial.print(M5.BtnB.isPressed()); Serial.print(' ');
+  Serial.println(M5.BtnC.isPressed());
   G.M_BtnA_Prev = btnNow;
 }
 
