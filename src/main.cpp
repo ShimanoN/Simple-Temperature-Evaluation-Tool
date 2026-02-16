@@ -18,6 +18,8 @@ void initGlobalData() {
 void setup() {
   M5.begin();
   M5.Power.begin();
+  Serial.begin(115200);
+  Serial.println("Setup start");
   M5.Lcd.setTextSize(2);
   M5.Lcd.println("Temperature Eval Tool");
   M5.Lcd.println("Refactored Version");
@@ -34,12 +36,15 @@ void setup() {
   const int MAX_RETRY = 5;
   for (int i = 0; i < MAX_RETRY; ++i) {
     testTemp = thermocouple.readCelsius();
+    Serial.print("MAX try "); Serial.print(i); Serial.print(" -> ");
+    if (isnan(testTemp)) Serial.println("nan"); else Serial.println(testTemp, 3);
     if (!isnan(testTemp)) break;
     M5.Lcd.print('.');
     delay(500);
   }
 
   if (isnan(testTemp)) {
+    Serial.println("MAX31855 not found after retries");
     M5.Lcd.println();
     M5.Lcd.println("ERROR: MAX31855 not found!");
     M5.Lcd.println("Check wiring, VCC (3.3V), GND, CS/SCK/MISO pins");
@@ -49,6 +54,7 @@ void setup() {
     // フィルタ初期値を実測値で初期化 (収束時間短縮)
     G.D_FilteredPV = testTemp;
     M5.Lcd.println("MAX31855 OK");
+    Serial.print("MAX31855 OK: "); Serial.println(testTemp, 3);
   }
   delay(1000);
   M5.Lcd.fillScreen(BLACK);
