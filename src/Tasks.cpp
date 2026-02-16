@@ -6,7 +6,17 @@ Adafruit_MAX31855 thermocouple(MAX31855_SCK, MAX31855_CS, MAX31855_MISO);
 
 // ========== IO Layer (10ms周期) ==========
 void IO_Task() {
+  // DEBUG: temporarily disable MAX31855 SPI access to isolate display issues
+  // Set TEST_DISPLAY_ONLY to 1 to use a fake sensor value and avoid touching SPI lines.
+#define TEST_DISPLAY_ONLY 1
+#if TEST_DISPLAY_ONLY
+  static float fakeTemp = 25.0f;
+  G.D_RawPV = fakeTemp;
+  fakeTemp += 0.1f;
+  if (fakeTemp > 35.0f) fakeTemp = 25.0f;
+#else
   G.D_RawPV = thermocouple.readCelsius();
+#endif
 
   // Debug: print raw reading
   Serial.print("IO_Task - RawPV: ");
