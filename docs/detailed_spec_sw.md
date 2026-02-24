@@ -106,10 +106,11 @@ constexpr unsigned long UI_CYCLE_MS    = 200UL;  // UI層: 画面描画
 constexpr float FILTER_ALPHA = 0.1f;  // 1次遅れフィルタ係数 (0.0-1.0)
 
 // --- 状態定義 ---
-enum State {
-  STATE_IDLE,
-  STATE_RUN,
-  STATE_RESULT
+// enum class により名前がグローバル空間に漏れない (State::IDLE のようにアクセス)
+enum class State : uint8_t {
+  IDLE,
+  RUN,
+  RESULT
 };
 
 // --- グローバルデータ ---
@@ -124,7 +125,7 @@ struct GlobalData {
   // 内部リレー群
   State  M_CurrentState;   // 現在の状態
   bool   M_BtnA_Pressed;   // ボタンA立ち上がりエッジ検出
-  bool   M_BtnA_Prev;      // ボタンA前回値 (エッジ検出用)
+  // M_BtnA_Prev は IO_Task の static ローカル変数へ移動済み
 };
 
 // 外部参照宣言
@@ -132,6 +133,7 @@ extern GlobalData G;
 extern Adafruit_MAX31855 thermocouple;
 
 // タスク関数宣言
+void initGlobalData();
 void IO_Task();
 void Logic_Task();
 void UI_Task();
@@ -150,21 +152,31 @@ void UI_Task();
 GlobalData G;
 Adafruit_MAX31855 thermocouple(MAX31855_CS);
 
-// ========== IO Layer (10ms周期) ==========
+// ===========  IO Layer (10ms周期) ==============
 void IO_Task() {
-  G.D_RawPV = thermocouple.readCelsius();
+  static unsigned long lastTcRead = 0;
+  const unsigned long  now        = millis();
 
-  if (!isnan(G.D_RawPV)) {
-    // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
-    G.D_FilteredPV = (G.D_FilteredPV * (1.0f - FILTER_ALPHA)) + (G.D_RawPV * FILTER_ALPHA);
+  if (now - lastTcRead >= TC_READ_INTERVAL_MS) {
+    lastTcRead = now;
+    const float rawTemp = thermocouple.readCelsius();
+    if (!isnan(rawTemp)) {
+      G.D_RawPV = rawTemp;
+      // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
+      G.D_FilteredPV = isnan(G.D_FilteredPV)
+                     ? rawTemp
+                     : G.D_FilteredPV * (1.0f - FILTER_ALPHA)
+                       + rawTemp      *           FILTER_ALPHA;
+    }
   }
 
   M5.update();
-  bool btnNow = M5.BtnA.isPressed();
-  if (btnNow && !G.M_BtnA_Prev) {
+  static bool btnPrev = false;          // エッジ検出用前回値
+  const bool  btnNow  = M5.BtnA.isPressed();
+  if (btnNow && !btnPrev) {
     G.M_BtnA_Pressed = true;
   }
-  G.M_BtnA_Prev = btnNow;
+  btnPrev = btnNow;
 }
 
 // ========== Logic Layer (50ms周期) ==========
@@ -173,32 +185,28 @@ void Logic_Task() {
     G.M_BtnA_Pressed = false;
 
     switch (G.M_CurrentState) {
-      case STATE_IDLE:
+      case State::IDLE:
         G.D_Sum           = 0.0;
         G.D_Count         = 0;
-        G.M_CurrentState  = STATE_RUN;
+        G.M_CurrentState  = State::RUN;
         break;
 
-      case STATE_RUN:
-        if (G.D_Count > 0) {
-          G.D_Average = G.D_Sum / G.D_Count;
-        } else {
-          G.D_Average = G.D_FilteredPV;
-        }
-        G.M_CurrentState = STATE_RESULT;
+      case State::RUN:
+        G.D_Average = (G.D_Count > 0)
+                    ? static_cast<float>(G.D_Sum / G.D_Count)
+                    : G.D_FilteredPV;
+        G.M_CurrentState = State::RESULT;
         break;
 
-      case STATE_RESULT:
-        G.M_CurrentState = STATE_IDLE;
+      case State::RESULT:
+        G.M_CurrentState = State::IDLE;
         break;
     }
   }
 
-  if (G.M_CurrentState == STATE_RUN) {
-    if (!isnan(G.D_FilteredPV)) {
-      G.D_Sum += G.D_FilteredPV;
-      G.D_Count++;
-    }
+  if (G.M_CurrentState == State::RUN && !isnan(G.D_FilteredPV)) {
+    G.D_Sum += G.D_FilteredPV;
+    G.D_Count++;
   }
 }
 
@@ -210,9 +218,9 @@ void UI_Task() {
 
   M5.Lcd.print("STATE: ");
   switch (G.M_CurrentState) {
-    case STATE_IDLE:   M5.Lcd.println("IDLE");   break;
-    case STATE_RUN:    M5.Lcd.println("RUN");    break;
-    case STATE_RESULT: M5.Lcd.println("RESULT"); break;
+    case State::IDLE:   M5.Lcd.println("IDLE  ");  break;
+    case State::RUN:    M5.Lcd.println("RUN   ");  break;
+    case State::RESULT: M5.Lcd.println("RESULT");  break;
   }
   M5.Lcd.println();
 
@@ -225,10 +233,10 @@ void UI_Task() {
   }
   M5.Lcd.println();
 
-  if (G.M_CurrentState == STATE_RUN) {
+  if (G.M_CurrentState == State::RUN) {
     M5.Lcd.print("Samples: ");
     M5.Lcd.println(G.D_Count);
-  } else if (G.M_CurrentState == STATE_RESULT) {
+  } else if (G.M_CurrentState == State::RESULT) {
     M5.Lcd.print("Average: ");
     M5.Lcd.print(G.D_Average, 1);
     M5.Lcd.println(" C");
@@ -247,19 +255,21 @@ void UI_Task() {
 ```cpp
 #include "Global.h"
 
-unsigned long T_IO_Last    = 0;
-unsigned long T_Logic_Last = 0;
-unsigned long T_UI_Last    = 0;
+namespace {
+  unsigned long T_IO_Last    = 0;
+  unsigned long T_Logic_Last = 0;
+  unsigned long T_UI_Last    = 0;
+}
 
 // グローバルデータの初期化
 void initGlobalData() {
-  G.M_CurrentState  = STATE_IDLE;
-  G.D_FilteredPV    = 0.0;
-  G.D_Sum           = 0.0;
-  G.D_Count         = 0;
-  G.D_Average       = 0.0;
-  G.M_BtnA_Pressed  = false;
-  G.M_BtnA_Prev     = false;
+  G.D_RawPV        = NAN;
+  G.D_FilteredPV   = NAN;
+  G.D_Sum          = 0.0;
+  G.D_Count        = 0;
+  G.D_Average      = NAN;
+  G.M_CurrentState = State::IDLE;
+  G.M_BtnA_Pressed = false;
 }
 
 void setup() {
@@ -276,18 +286,22 @@ void setup() {
   // 初期化
   initGlobalData();
 
-  // MAX31855接続確認
-  float testTemp = thermocouple.readCelsius();
-  if (isnan(testTemp)) {
-    M5.Lcd.println("ERROR: MAX31855 not found!");
-    M5.Lcd.println("Check wiring!");
-    while(1) { delay(1000); }
+  // MAX31855接続確認 (最大 5回リトライ)
+  delay(200);
+  float testTemp = NAN;
+  for (int i = 0; i < 5; ++i) {
+    testTemp = thermocouple.readCelsius();
+    if (!isnan(testTemp)) break;
+    delay(500);
   }
-
-  // フィルタ初期値を実測値で初期化 (収束時間短縮)
-  G.D_FilteredPV = testTemp;
-
-  M5.Lcd.println("MAX31855 OK");
+  if (isnan(testTemp)) {
+    M5.Lcd.println("ERROR: MAX31855");
+    M5.Lcd.println("Check wiring!");
+    // センサ未接続でも動作継続 (UI に ---.- C を表示)
+  } else {
+    G.D_FilteredPV = testTemp;  // フィルタ初期値を実測値で設定
+    M5.Lcd.println("MAX31855 OK");
+  }
   delay(1000);
   M5.Lcd.fillScreen(BLACK);
 }
@@ -487,7 +501,6 @@ D_Average = D_Sum / D_Count
 | **D_Average**      | float  | 計算された平均値（RESULT状態で表示）   |
 | **M_CurrentState** | enum   | 現在の状態（IDLE/RUN/RESULT）  |
 | **M_BtnA_Pressed** | bool   | ボタン押下フラグ（エッジ検出済み）       |
-| **M_BtnA_Prev**    | bool   | ボタン前回状態（エッジ検出用）         |
 
 ### タイミング図
 
@@ -507,4 +520,4 @@ D_Average = D_Sum / D_Count
 ---
 
 **作成**: Shimano
-**最終更新**: 2026年2月4日
+**最終更新**: 2026年2月24日

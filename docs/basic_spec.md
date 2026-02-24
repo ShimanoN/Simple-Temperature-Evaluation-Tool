@@ -2,7 +2,7 @@
 
 **プロジェクト**: 温度評価ツール Phase 1  
 **開発環境**: PlatformIO (VSCode拡張)     
-**バージョン**: v3.0 (リファクタリング版)
+**バージョン**: v3.1 (リファクタリング完了版)
 
 ---
 
@@ -11,12 +11,14 @@
 プロジェクト全体の構成・購入部品・開発フローをまとめたサマリー。  
 詳細な手順は以下を参照:
 
-| ドキュメント                   | 内容                           |
-| ------------------------ | ---------------------------- |
-| **basic_spec.md**（本ファイル） | 全体把握・購入部品・開発環境概要             |
-| **detailed_spec_hw.md**  | ハードウェア: 組み立て・配線・現場運用・保守      |
-| **detailed_spec_sw.md**  | ソフトウェア: 環境構築・コード構成・書き込み・動作確認 |
-| **future_plan.md**       | Phase 2 以降の拡張計画              |
+| ドキュメント                          | 内容                                  |
+| --------------------------------- | ----------------------------------- |
+| **basic_spec.md**（本ファイル）         | 全体把握・購入部品・開発環境概要                  |
+| **detailed_spec_hw.md**           | ハードウェア: 組み立て・配線・現場運用・保守           |
+| **detailed_spec_sw.md**           | ソフトウェア: 環境構築・コード構成・書き込み・動作確認      |
+| **future_plan.md**                | Phase 2 以降の拡張計画（統計・アラーム・SD保存 等）   |
+| **CODE_EXPLANATION.md**           | コード設計の意図・アーキテクチャ解説・トラブルシューティング  |
+| **LEARNING_LOG_PLC_to_CPP.md**    | PLC技術者向け C++ 対比学習ノート             |
 
 ---
 
@@ -112,10 +114,12 @@ temp_eval_tool/
 │   ├── main.cpp            # setup/loop処理
 │   └── Tasks.cpp           # IO/Logic/UI層の実装
 └── docs/
-    ├── basic_spec.md       # 本ファイル
-    ├── detailed_spec_hw.md # ハードウェア仕様
-    ├── detailed_spec_sw.md # ソフトウェア仕様
-    └── future_plan.md      # 拡張計画
+    ├── basic_spec.md              # 本ファイル（全体概要）
+    ├── detailed_spec_hw.md        # ハードウェア仕様
+    ├── detailed_spec_sw.md        # ソフトウェア仕様
+    ├── future_plan.md             # 拡張計画（Phase 2〜）
+    ├── CODE_EXPLANATION.md        # コード解説・設計指針
+    └── LEARNING_LOG_PLC_to_CPP.md # PLC→C++ 学習ノート
 ```
 
 ---
@@ -177,4 +181,4 @@ temp_eval_tool/
 ---
 
 **作成**: Shimano 
-**最終更新**: 2026年2月4日
+**最終更新**: 2026年2月24日
