@@ -20,29 +20,18 @@ void setup() {
 
   initGlobalData();
 
-<<<<<<< HEAD
-  // MAX31855接続確認
-  // IOControllerが内部的に500msごとに読み取るため、複数回チェック
-=======
   // MAX31855 接続確認 (最大5回リトライ)
   // MAX31855 はパワーオン後最低 100ms の安定待ちが必要（データシート p.1）
   delay(200);
   Serial.println("Checking MAX31855...");
   constexpr int MAX_RETRY = 5;
->>>>>>> b45dc54 (refactor: グローバルデータの初期化と状態管理の改善、MAX31855接続確認のメッセージを修正)
   float testTemp = NAN;
   for (int i = 0; i < MAX_RETRY; ++i) {
-<<<<<<< HEAD
     // g_ioにtickを呼び出して温度を読み取らせる
     IO_Task();
-    testTemp = getInitialTemperature();
-    Serial.print("MAX try "); Serial.print(i); Serial.print(" -> ");
-    if (isnan(testTemp)) Serial.println("nan"); else Serial.println(testTemp, 3);
-=======
-    testTemp = thermocouple.readCelsius();
+    testTemp = G.D_FilteredPV;
     Serial.printf("  try %d -> %s\n", i,
                   isnan(testTemp) ? "NAN" : String(testTemp, 3).c_str());
->>>>>>> b45dc54 (refactor: グローバルデータの初期化と状態管理の改善、MAX31855接続確認のメッセージを修正)
     if (!isnan(testTemp)) break;
     M5.Lcd.print('.');
     delay(500);

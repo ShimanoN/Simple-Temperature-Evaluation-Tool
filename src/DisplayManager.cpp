@@ -2,12 +2,12 @@
 #include <cmath>
 
 DisplayManager::DisplayManager()
-  : lastState_(STATE_IDLE)
+  : lastState_(State::IDLE)
 {}
 
 void DisplayManager::begin() {
   M5.Lcd.fillScreen(BLACK);
-  lastState_ = STATE_IDLE;
+  lastState_ = State::IDLE;
 }
 
 void DisplayManager::update(State state, float temperature, int count, float average) {
@@ -31,9 +31,9 @@ void DisplayManager::update(State state, float temperature, int count, float ave
   M5.Lcd.println();
 
   // サンプル数または平均値
-  if (state == STATE_RUN) {
+  if (state == State::RUN) {
     drawSampleCount(count);
-  } else if (state == STATE_RESULT) {
+  } else if (state == State::RESULT) {
     drawAverage(average);
   } else {
     M5.Lcd.println("                    ");
@@ -50,9 +50,9 @@ void DisplayManager::clearScreen() {
 void DisplayManager::drawStateLabel(State state) {
   M5.Lcd.print("STATE: ");
   switch (state) {
-    case STATE_IDLE:   M5.Lcd.println("IDLE  ");   break;
-    case STATE_RUN:    M5.Lcd.println("RUN   ");   break;
-    case STATE_RESULT: M5.Lcd.println("RESULT");   break;
+    case State::IDLE:   M5.Lcd.println("IDLE  ");   break;
+    case State::RUN:    M5.Lcd.println("RUN   ");   break;
+    case State::RESULT: M5.Lcd.println("RESULT");   break;
   }
 }
 
