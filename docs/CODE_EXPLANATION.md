@@ -253,13 +253,13 @@ void setup() {
 **After:**
 ```cpp
 void initGlobalData() {
-    G.M_CurrentState  = STATE_IDLE;
-    G.D_FilteredPV    = 0.0;
+    G.M_CurrentState  = State::IDLE;  // enum class のためスコープ解決演算子が必要
+    G.D_FilteredPV    = NAN;   // 未読取を NAN で明示
     G.D_Sum           = 0.0;
     G.D_Count         = 0;
-    G.D_Average       = 0.0;  // 初期化漏れを修正
+    G.D_Average       = NAN;   // 初期化漏れを修正
     G.M_BtnA_Pressed  = false;
-    G.M_BtnA_Prev     = false;
+    // M_BtnA_Prev は IO_Task の static ローカル変数へ移動（構造体から除去）
 }
 
 void setup() {

@@ -34,8 +34,9 @@
 
 - **C++**:
   ```cpp
-  enum State { IDLE, RUN, ALARM };
-  // 中身は 0, 1, 2 だが、コード上は名前で扱える
+  enum class State : uint8_t { IDLE, RUN, RESULT };
+  // 中身は 0, 1, 2 だが、コード上は名前（State::IDLE 等）で扱える
+  // enum class により名前がグローバル空間に漏れない
   ```
 - **PLC**:
   内部デバイス `D100` のコメントに `0:停止 1:運転` と書いたり、グローバル定数 `c_RUN = 1` を定義する感覚。マジックナンバー（謎の数字）を排除できる。
@@ -45,7 +46,7 @@
 
 ファイル（プログラム部品）を分けたときに、「実体はあっち（別ファイル）にあるデバイスを使うよ」という宣言。
 
-- **C++**: `extern GlobalData G;` （Gはよそにあるぞ！）
+- **C++**: `extern GlobalData G;` / `extern Adafruit_MAX31855 thermocouple;` （実体はよそにあるぞ！）
 - **PLC**: プログラムブロック間でローカルラベルではなくグローバルラベルを参照する設定。これがないと「二重定義（同じ名前のデバイスが2つある）」エラーになる。
 
 ---
@@ -206,12 +207,13 @@ void setup() {
 **After:**
 ```cpp
 void initGlobalData() {
-    G.M_CurrentState  = STATE_IDLE;
-    G.D_FilteredPV    = 0.0;
+    G.M_CurrentState  = State::IDLE;  // enum class のためスコープ解決演算子が必要
+    G.D_FilteredPV    = NAN;   // 未読取を NAN で明示
     G.D_Sum           = 0.0;
     G.D_Count         = 0;
-    G.D_Average       = 0.0;  // 初期化漏れを修正
-    // ...
+    G.D_Average       = NAN;   // 初期化漏れを修正
+    G.M_BtnA_Pressed  = false;
+    // M_BtnA_Prev は IO_Task の static ローカル変数へ移動（構造体から除去）
 }
 
 void setup() {

@@ -67,20 +67,27 @@ lib_deps =
 
 ```
 temp_eval_tool/
-├── platformio.ini          ← 上記で編集済み
+├── platformio.ini           ← 上記で編集済み
 ├── include/
-│   └── Global.h            ← 新規作成（次のセクション参照）
+│   ├── Global.h             ← 新規作成（型・定数・グローバル定義）
+│   └── Tasks.h              ← 新規作成（タスク関数宣言）
 ├── src/
-│   ├── main.cpp            ← デフォルトで存在（内容を置き換え）
-│   └── Tasks.cpp           ← 新規作成（次のセクション参照）
-└── lib/                    ← ライブラリ（自動管理）
+│   ├── main.cpp             ← デフォルトで存在（内容を置き換え）
+│   ├── Tasks.cpp            ← 新規作成（IO / Logic / UI タスク実装）
+│   ├── DisplayManager.h/.cpp← 新規作成（UI層クラス）
+│   ├── IOController.h/.cpp  ← 新規作成（IO層クラス）
+│   └── MeasurementCore.h/.cpp← 新規作成（Logic層クラス・ユニットテスト対応）
+└── lib/                     ← ライブラリ（自動管理）
 ```
+
+> **層構造の考え方**: `Global.h` → 共通型・定数 / `Tasks.cpp` → 3層タスクのエントリポイント /
+> `DisplayManager` → UI層 / `IOController` → IO層 / `MeasurementCore` → Logic層
 
 ---
 
 ## ソースコードの作成
 
-以下の3ファイルを作成・編集します。
+以下のファイルを作成・編集します。
 
 ### 1. include/Global.h（新規作成）
 
@@ -261,45 +268,42 @@ namespace {
   unsigned long T_UI_Last    = 0;
 }
 
-// グローバルデータの初期化
-void initGlobalData() {
-  G.D_RawPV        = NAN;
-  G.D_FilteredPV   = NAN;
-  G.D_Sum          = 0.0;
-  G.D_Count        = 0;
-  G.D_Average      = NAN;
-  G.M_CurrentState = State::IDLE;
-  G.M_BtnA_Pressed = false;
-}
+// ※ initGlobalData() の実装は Tasks.cpp にある
 
 void setup() {
   M5.begin();
   M5.Power.begin();
+  Serial.begin(115200);
+
   M5.Lcd.setTextSize(2);
   M5.Lcd.println("Temperature Eval Tool");
-  M5.Lcd.println("Phase 1 - Starting...");
-  M5.Lcd.println("");
-  M5.Lcd.println("Checking MAX31855...");
+  M5.Lcd.println();
 
-  delay(1000);
-
-  // 初期化
   initGlobalData();
 
-  // MAX31855接続確認 (最大 5回リトライ)
+  // MAX31855 接続確認 (最大5回リトライ)
+  // MAX31855 はパワーオン後最低 100ms の安定待ちが必要
   delay(200);
+  Serial.println("Checking MAX31855...");
+  constexpr int MAX_RETRY = 5;
   float testTemp = NAN;
-  for (int i = 0; i < 5; ++i) {
-    testTemp = thermocouple.readCelsius();
+  for (int i = 0; i < MAX_RETRY; ++i) {
+    IO_Task();                  // IO層でセンサーを読み取らせる
+    testTemp = G.D_FilteredPV;  // フィルタ後の値を取得
+    Serial.printf("  try %d -> %s\n", i,
+                  isnan(testTemp) ? "NAN" : String(testTemp, 3).c_str());
     if (!isnan(testTemp)) break;
+    M5.Lcd.print('.');
     delay(500);
   }
   if (isnan(testTemp)) {
+    M5.Lcd.println();
     M5.Lcd.println("ERROR: MAX31855");
     M5.Lcd.println("Check wiring!");
     // センサ未接続でも動作継続 (UI に ---.- C を表示)
   } else {
-    G.D_FilteredPV = testTemp;  // フィルタ初期値を実測値で設定
+    G.D_FilteredPV = testTemp;  // フィルタ初期値を実測値で設定（収束時間短縮）
+    M5.Lcd.println();
     M5.Lcd.println("MAX31855 OK");
   }
   delay(1000);
@@ -307,7 +311,7 @@ void setup() {
 }
 
 void loop() {
-  unsigned long now = millis();
+  const unsigned long now = millis();
 
   if (now - T_IO_Last >= IO_CYCLE_MS) {
     T_IO_Last = now;
