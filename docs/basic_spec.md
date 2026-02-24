@@ -180,5 +180,5 @@ temp_eval_tool/
 
 ---
 
-**作成**: Shimano 
+**作成**: Shimano Takumi
 **最終更新**: 2026年2月24日
