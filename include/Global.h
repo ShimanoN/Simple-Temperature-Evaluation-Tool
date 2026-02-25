@@ -2,6 +2,8 @@
 
 #include <M5Stack.h>
 #include <Adafruit_MAX31855.h>
+#include <cmath>   // sqrt, isnan など数学関数用
+#include <cfloat>  // FLT_MAX, FLT_MIN など
 
 // ── ピン定義 ──────────────────────────────────────────────────────────────────
 // ハードウェアSPI (SCK=GPIO18, MISO=GPIO19) でLCDとバス共有。
@@ -38,9 +40,18 @@ struct GlobalData {
   long   D_Count;        // サンプル数
   float  D_Average;      // 平均温度 [°C]
 
+  // Phase 2: 統計機能
+  float  D_Max;          // 計測期間中の最高温度 [°C]
+  float  D_Min;          // 計測期間中の最低温度 [°C]
+  float  D_Range;        // Max - Min（温度変動幅）[°C]
+  double D_M2;           // Welford法 二乗偏差累積
+  float  D_StdDev;       // 標準偏差 σ（ばらつきの大きさ）[°C]
+
   // 内部リレー群
   State  M_CurrentState;  // 現在の状態
   bool   M_BtnA_Pressed;  // ボタンA 立ち上がりエッジ検出フラグ
+  bool   M_BtnB_Pressed;  // ボタンB 立ち上がりエッジ検出フラグ (ページング用)
+  int    M_ResultPage;    // RESULT画面のページ番号（0 or 1）
   // M_BtnA_Prev は IO_Task の実装詳細のため static ローカル変数へ移動
 };
 // ── 外部宣言 ──────────────────────────────────────────────────────────────────

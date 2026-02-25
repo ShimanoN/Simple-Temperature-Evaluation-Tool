@@ -15,6 +15,8 @@ void initGlobalData() {
   G.D_Average      = NAN;
   G.M_CurrentState = State::IDLE;
   G.M_BtnA_Pressed = false;
+  G.M_BtnB_Pressed = false;  // ボタンB初期化
+  G.M_ResultPage   = 0;     // RESULT画面ページ初期化
 }
 
 // ========== IO Layer (10ms周期) ==================================================
@@ -40,12 +42,20 @@ void IO_Task() {
   }
 
   M5.update();
-  static bool btnPrev = false;          // エッジ検出用前回値 (IO_Task の実装詳細)
-  const bool  btnNow  = M5.BtnA.isPressed();
-  if (btnNow && !btnPrev) {
+  static bool btnAPrev = false;         // BtnA エッジ検出用前回値
+  static bool btnBPrev = false;         // BtnB エッジ検出用前回値
+  
+  const bool  btnANow  = M5.BtnA.isPressed();
+  if (btnANow && !btnAPrev) {
     G.M_BtnA_Pressed = true;  // 立ち上がりエッジ
   }
-  btnPrev = btnNow;
+  btnAPrev = btnANow;
+  
+  const bool  btnBNow  = M5.BtnB.isPressed();
+  if (btnBNow && !btnBPrev) {
+    G.M_BtnB_Pressed = true;  // 立ち上がりエッジ（ページング用）
+  }
+  btnBPrev = btnBNow;
 }
 
 // ========== Logic Layer (50ms周期) ===============================================
@@ -57,6 +67,9 @@ void Logic_Task() {
       case State::IDLE:
         G.D_Sum          = 0.0;
         G.D_Count        = 0;
+        G.D_Max          = -FLT_MAX;  // Phase 2: 最大値を最小に初期化
+        G.D_Min          =  FLT_MAX;  // Phase 2: 最小値を最大に初期化
+        G.D_M2           = 0.0;       // Phase 2: Welford法 二乗偏差をリセット
         G.M_CurrentState = State::RUN;
         break;
 
@@ -64,6 +77,17 @@ void Logic_Task() {
         G.D_Average = (G.D_Count > 0)
                     ? static_cast<float>(G.D_Sum / G.D_Count)
                     : G.D_FilteredPV;   // サンプルなし時は現在値 (NAN の場合もある)
+        
+        // Phase 2: RUN→RESULT 遷移時に統計を計算
+        if (G.D_Count > 0) {
+          G.D_Range = G.D_Max - G.D_Min;
+          G.D_StdDev = static_cast<float>(sqrt(G.D_M2 / G.D_Count));
+        } else {
+          G.D_Range = 0.0f;
+          G.D_StdDev = 0.0f;
+        }
+        
+        G.M_ResultPage   = 0;  // ページングをリセット
         G.M_CurrentState = State::RESULT;
         break;
 
@@ -74,60 +98,153 @@ void Logic_Task() {
   }
 
   if (G.M_CurrentState == State::RUN && !isnan(G.D_FilteredPV)) {
-    G.D_Sum += G.D_FilteredPV;
     G.D_Count++;
+    
+    // Welford法: 数値的に安定した逐次更新
+    const double prevMean = (G.D_Count == 1) ? 0.0 : G.D_Sum / (G.D_Count - 1);
+    const double delta  = G.D_FilteredPV - prevMean;
+    
+    G.D_Sum += G.D_FilteredPV;
+    const double newMean = G.D_Sum / G.D_Count;
+    const double delta2 = G.D_FilteredPV - newMean;
+    
+    G.D_M2 += delta * delta2;  // 二乗偏差を逐次累積
+    
+    // Max/Min 更新
+    if (G.D_FilteredPV > G.D_Max) G.D_Max = G.D_FilteredPV;
+    if (G.D_FilteredPV < G.D_Min) G.D_Min = G.D_FilteredPV;
+  }
+  
+  // BtnB イベント処理（ページング用）
+  if (G.M_BtnB_Pressed) {
+    G.M_BtnB_Pressed = false;
+    if (G.M_CurrentState == State::RESULT) {
+      G.M_ResultPage = (G.M_ResultPage + 1) % 2;  // 0 ↔ 1 を切り替え
+    }
   }
 }
 
 // ========== UI Layer (200ms周期) =================================================
 void UI_Task() {
   static State prevState = State::IDLE;
+  static int   prevPage  = -1;  // ページ遷移検出用
 
   // 状態遷移時のみフル消去（残像防止）
   if (G.M_CurrentState != prevState) {
     M5.Lcd.fillScreen(BLACK);
     prevState = G.M_CurrentState;
+    prevPage = -1;  // 状態変更時はページリセット
+  }
+  
+  // RESULT状態でページが変わった場合もクリア
+  if (G.M_CurrentState == State::RESULT && prevPage != G.M_ResultPage) {
+    M5.Lcd.fillScreen(BLACK);
+    prevPage = G.M_ResultPage;
   }
 
   M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextSize(2);
   M5.Lcd.setTextColor(WHITE, BLACK);
-
-  // ── 状態行 ──
-  const char* stateLabel = "      ";
-  switch (G.M_CurrentState) {
-    case State::IDLE:   stateLabel = "IDLE  "; break;
-    case State::RUN:    stateLabel = "RUN   "; break;
-    case State::RESULT: stateLabel = "RESULT"; break;
-  }
-  M5.Lcd.printf("STATE: %s\n\n", stateLabel);
-
-  // ── 温度行 ──
-  if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.printf("Temp:  ---.-  C\n\n");
-  } else {
-    M5.Lcd.printf("Temp:  %5.1f  C\n\n", G.D_FilteredPV);
-  }
-
-  // ── 状態別情報行 ──
-  switch (G.M_CurrentState) {
-    case State::RUN:
-      M5.Lcd.printf("Samples: %5ld  \n", G.D_Count);
-      break;
-    case State::RESULT:
-      if (isnan(G.D_Average)) {
-        M5.Lcd.printf("Average: ---.-C\n");
+  
+  // Phase 2の拡張: RESULT画面は2ページに分割して大きく表示
+  if (G.M_CurrentState == State::RESULT) {
+    if (G.M_ResultPage == 0) {
+      // ========== Page 1: Temp + Avg（最小限の表示）==========
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.printf("RESULT (1/2)\n\n");
+      
+      // 温度表示（大きく）
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.setCursor(10, 30);
+      if (isnan(G.D_FilteredPV)) {
+        M5.Lcd.printf("---.- C");
       } else {
-        M5.Lcd.printf("Average: %5.1fC\n", G.D_Average);
+        M5.Lcd.printf("%5.1f C", G.D_FilteredPV);
       }
-      break;
-    default:
-      M5.Lcd.printf("               \n");
-      break;
-  }
+      
+      // 平均値ラベルと値
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 100);
+      M5.Lcd.printf("Avg:\n");
+      M5.Lcd.setCursor(0, 140);
+      if (isnan(G.D_Average)) {
+        M5.Lcd.printf("---.-C");
+      } else {
+        M5.Lcd.printf("%5.1fC", G.D_Average);
+      }
+    } else {
+      // ========== Page 2: StdDev + Max/Min + Range ==========
+      M5.Lcd.setTextSize(1);
+      M5.Lcd.printf("RESULT (2/2)\n");
+      
+      // StdDev - ラベルを大きく、値を超大型
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 30);
+      M5.Lcd.printf("StdDev:");
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.setCursor(20, 60);
+      M5.Lcd.printf("%5.1f C", G.D_StdDev);
+      
+      // Max と Min - ラベルを大きく、値は中型
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 115);
+      M5.Lcd.printf("Max:");
+      M5.Lcd.setCursor(150, 115);
+      M5.Lcd.printf("Min:");
+      
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(10, 145);
+      M5.Lcd.printf("%5.1fC", G.D_Max);
+      M5.Lcd.setCursor(160, 145);
+      M5.Lcd.printf("%5.1fC", G.D_Min);
+      
+      // Range - ラベルを大きく、値を超大型
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 180);
+      M5.Lcd.printf("Range:");
+      M5.Lcd.setTextSize(3);
+      M5.Lcd.setCursor(20, 210);
+      M5.Lcd.printf("%5.1f C", G.D_Range);
+    }
+    
+    // ボタンガイド（下端固定）
+    M5.Lcd.setCursor(0, 220);
+    M5.Lcd.setTextSize(1);
+    if (G.M_ResultPage == 0) {
+      M5.Lcd.print("[BtnA] Reset   [BtnB] Next");
+    } else {
+      M5.Lcd.print("[BtnA] Reset   [BtnB] Prev");
+    }
 
-  // ── ボタンガイド（下端固定） ──
-  M5.Lcd.setCursor(0, 220);
-  M5.Lcd.setTextSize(1);
-  M5.Lcd.print("[BtnA] Start / Stop / Reset");
+  } else {
+    // IDLE/RUN 状態は textSize(2) で表示
+    M5.Lcd.setTextSize(2);
+    
+    // ── 状態行 ──
+    const char* stateLabel = "      ";
+    switch (G.M_CurrentState) {
+      case State::IDLE:   stateLabel = "IDLE  "; break;
+      case State::RUN:    stateLabel = "RUN   "; break;
+      case State::RESULT: stateLabel = "RESULT"; break;
+    }
+    M5.Lcd.printf("STATE: %s\n\n", stateLabel);
+
+    // ── 温度行 ──
+    if (isnan(G.D_FilteredPV)) {
+      M5.Lcd.printf("Temp:  ---.-  C\n\n");
+    } else {
+      M5.Lcd.printf("Temp:  %5.1f  C\n\n", G.D_FilteredPV);
+    }
+
+    // ── 状態別情報行 ──
+    if (G.M_CurrentState == State::RUN) {
+      M5.Lcd.printf("Samples: %5ld  \n", G.D_Count);
+    } else {
+      M5.Lcd.printf("               \n");
+    }
+
+    // ── ボタンガイド（下端固定） ──
+    M5.Lcd.setCursor(0, 220);
+    M5.Lcd.setTextSize(1);
+    M5.Lcd.print("[BtnA] Start / Stop / Reset");
+  }
 }
