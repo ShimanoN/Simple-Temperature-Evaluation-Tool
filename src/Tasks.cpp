@@ -148,62 +148,65 @@ void UI_Task() {
   // Phase 2の拡張: RESULT画面は2ページに分割して大きく表示
   if (G.M_CurrentState == State::RESULT) {
     if (G.M_ResultPage == 0) {
-      // ========== Page 1: Temp + Avg（最小限の表示）==========
+      // ========== Page 1: Temp + Avg（シンプル統一レイアウト）==========
       M5.Lcd.setTextSize(1);
       M5.Lcd.printf("RESULT (1/2)\n\n");
       
-      // 温度表示（大きく）
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.setCursor(10, 30);
+      // 温度表示
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 40);
+      M5.Lcd.printf("Temp:\n");
+      M5.Lcd.setCursor(0, 70);
       if (isnan(G.D_FilteredPV)) {
         M5.Lcd.printf("---.- C");
       } else {
         M5.Lcd.printf("%5.1f C", G.D_FilteredPV);
       }
       
-      // 平均値ラベルと値
+      // 平均値
       M5.Lcd.setTextSize(2);
-      M5.Lcd.setCursor(0, 100);
+      M5.Lcd.setCursor(0, 120);
       M5.Lcd.printf("Avg:\n");
-      M5.Lcd.setCursor(0, 140);
+      M5.Lcd.setCursor(0, 150);
       if (isnan(G.D_Average)) {
         M5.Lcd.printf("---.-C");
       } else {
         M5.Lcd.printf("%5.1fC", G.D_Average);
       }
     } else {
-      // ========== Page 2: StdDev + Max/Min + Range ==========
+      // ========== Page 2: StdDev/Range + Max/Min (統一レイアウト) ==========
       M5.Lcd.setTextSize(1);
       M5.Lcd.printf("RESULT (2/2)\n");
       
-      // StdDev - ラベルを大きく、値を超大型
+      // ━━━━━━━━ 上段: StdDev と Range ━━━━━━━━
+      // ラベル行
       M5.Lcd.setTextSize(2);
       M5.Lcd.setCursor(0, 30);
       M5.Lcd.printf("StdDev:");
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.setCursor(20, 60);
-      M5.Lcd.printf("%5.1f C", G.D_StdDev);
+      M5.Lcd.setCursor(160, 30);
+      M5.Lcd.printf("Range:");
       
-      // Max と Min - ラベルを大きく、値は中型
+      // 値行（統一サイズ）
       M5.Lcd.setTextSize(2);
-      M5.Lcd.setCursor(0, 115);
+      M5.Lcd.setCursor(0, 60);
+      M5.Lcd.printf("%5.1f", G.D_StdDev);
+      M5.Lcd.setCursor(160, 60);
+      M5.Lcd.printf("%5.1f", G.D_Range);
+      
+      // ━━━━━━━━ 下段: Max と Min ━━━━━━━━
+      // ラベル行
+      M5.Lcd.setTextSize(2);
+      M5.Lcd.setCursor(0, 110);
       M5.Lcd.printf("Max:");
-      M5.Lcd.setCursor(150, 115);
+      M5.Lcd.setCursor(160, 110);
       M5.Lcd.printf("Min:");
       
+      // 値行（統一サイズ）
       M5.Lcd.setTextSize(2);
-      M5.Lcd.setCursor(10, 145);
-      M5.Lcd.printf("%5.1fC", G.D_Max);
-      M5.Lcd.setCursor(160, 145);
-      M5.Lcd.printf("%5.1fC", G.D_Min);
-      
-      // Range - ラベルを大きく、値を超大型
-      M5.Lcd.setTextSize(2);
-      M5.Lcd.setCursor(0, 180);
-      M5.Lcd.printf("Range:");
-      M5.Lcd.setTextSize(3);
-      M5.Lcd.setCursor(20, 210);
-      M5.Lcd.printf("%5.1f C", G.D_Range);
+      M5.Lcd.setCursor(0, 140);
+      M5.Lcd.printf("%5.1f", G.D_Max);
+      M5.Lcd.setCursor(160, 140);
+      M5.Lcd.printf("%5.1f", G.D_Min);
     }
     
     // ボタンガイド（下端固定）

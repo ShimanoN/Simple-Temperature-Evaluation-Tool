@@ -2,7 +2,19 @@
 
 **参照元**: basic_spec.md  
 **対象**: Phase 1 完了後の機能拡張  
-**最終更新**: 2026年2月24日
+**最終更新**: 2026年2月25日
+
+---
+
+## 📋 実装状況
+
+| Phase | 内容 | 状態 | 完了日 |
+|:---:|:---|:----:|:-------:|
+| 1 | 基本機能 | ✅ 完了 | 2026年2月24日 |
+| **2** | **統計機能（ばらつき表示）** | **✅ 完了** | **2026年2月25日** |
+| 3 | 閾値アラーム | 未着手 | — |
+| 4 | SDカードデータ保存 | 未着手 | — |
+| 5 | マルチチャンネル対応 | 未着手 | — |
 
 ---
 
@@ -18,58 +30,75 @@ Phase 2 に進む前に、以下が完了していることを確認してくだ
 
 ---
 
-## 実装優先度まとめ
+## 実装優先度と難易度
 
-| Phase | 内容             | ハードウェア追加     | 開発難易度 | 優先度 |
-|:-----:| -------------- |:----------:|:-----:|:---:|
-| **2** | 統計機能（ばらつき表示）  | なし         | 低     | ★★★ |
-| **3** | 閾値アラーム         | なし         | 低〜中   | ★★★ |
-| **4** | SDカードデータ保存     | RTCモジュール推奨  | 中     | ★★☆ |
-| **5** | マルチチャンネル対応     | MAX31855×3追加 | 中〜高 | ★☆☆ |
+| Phase | 内容             | ハードウェア追加     | 開発難易度 | 優先度 | 完了状態 |
+|:-----:| -------------- |:----------:|:-----:|:---:|:----:|
+| **2** | 統計機能（ばらつき表示）  | なし         | 低     | ★★★ | ✅ |
+| **3** | 閾値アラーム         | なし         | 低〜中   | ★★★ | — |
+| **4** | SDカードデータ保存     | RTCモジュール推奨  | 中     | ★★☆ | — |
+| **5** | マルチチャンネル対応     | MAX31855×3追加 | 中〜高 | ★☆☆ | — |
 
 ---
 
-## Phase 2: 統計機能（ばらつき表示）
+## Phase 2: 統計機能（ばらつき表示） ✅ 完了
 
-### 追加機能
+### ✨ 実装概要
 
-| 変数名        | 内容                      |
-| ---------- | ----------------------- |
-| `D_Max`    | 計測期間中の最高温度 [°C]         |
-| `D_Min`    | 計測期間中の最低温度 [°C]         |
-| `D_Range`  | Max − Min（温度変動幅） [°C]    |
-| `D_StdDev` | 標準偏差 σ（ばらつきの大きさ） [°C]   |
+**状態**: 🟢 **完了** (2026年2月25日)
 
-### RESULT 画面イメージ
+**目的**: RUN状態で計測したデータから統計情報を計算し、ページング機能で大きく見やすく表示する。
 
-```
-STATE: RESULT
+### 追加機能（実装済）
 
-Temp:  540.2 C
+| 変数名        | 内容                      | 初期化方法 |
+| ---------- | ----------------------- | -------- |
+| `D_Max`    | 計測期間中の最高温度 [°C]         | `-FLT_MAX` |
+| `D_Min`    | 計測期間中の最低温度 [°C]         | `+FLT_MAX` |
+| `D_Range`  | Max − Min（温度変動幅） [°C]    | 自動計算 |
+| `D_StdDev` | 標準偏差 σ（ばらつきの大きさ） [°C]   | Welford法で計算 |
+| `M_ResultPage` | RESULT画面のページ番号 (0/1) | 0（リセット時） |
+| `M_BtnB_Pressed` | ボタンB エッジ検出フラグ | false |
 
-Avg:   540.1 C
-StdDev:  1.2 C
-Max:   542.3 C
-Min:   538.5 C
-Range:   3.8 C
+### RESULT 画面実装仕様
 
-[BtnA] Reset
-```
-
-> **注意**: 現在の `textSize(2)` では行数が入りきらないため、  
-> RESULT 画面のみ `textSize(1)` に切り替えるか、BtnB でページ送りを実装する。
-
-### 標準偏差の計算方式
-
-`ΣX²` 方式（`D_SumSq / n - avg²`）は大きな数同士の減算で浮動小数点誤差が出やすい。  
-**Welford's online algorithm** を推奨（逐次更新で数値的に安定）：
+#### **Page 1/2: 温度と平均値**
 
 ```
-delta  = x - mean_prev
-mean  += delta / n
-M2    += delta * (x - mean_new)
-σ      = sqrt(M2 / n)
+RESULT (1/2)
+
+Temp:
+540.1 C
+
+Avg:
+540.1C
+
+[BtnA] Reset   [BtnB] Next
 ```
+
+**特徴**:
+- textSize(2) で統一（全コンテンツ） ← UI改善で実装
+- ラベル + 値の2段構成で見やすく
+- BtnB で次ページへ遷移
+
+#### **Page 2/2: 詳細統計情報**
+
+```
+RESULT (2/2)
+
+StdDev:         Range:
+1.2             3.8
+
+Max:            Min:
+542.3           538.5
+
+[BtnA] Reset   [BtnB] Prev
+```
+
+**特徴**:
+- 左右2列レイアウトで情報を効率的に表示
+- textSize(2) で統一（全コンテンツ） ← UI改善で実装
+- BtnB で前ページへ遷移
 
 ### 実装変更箇所
 
@@ -84,53 +113,195 @@ struct GlobalData {
   long   D_Count;
   float  D_Average;
 
-  // Phase 2 追加
-  float  D_Max;     // 最大値（RUN開始時 -FLT_MAX で初期化）
-  float  D_Min;     // 最小値（RUN開始時 +FLT_MAX で初期化）
-  float  D_Range;   // レンジ = Max - Min
-  double D_M2;      // Welford法 二乗偏差累積
-  float  D_StdDev;  // 標準偏差
+  // Phase 2 追加（実装済）
+  float  D_Max;          // 最大値（RUN開始時 -FLT_MAX で初期化）
+  float  D_Min;          // 最小値（RUN開始時 +FLT_MAX で初期化）
+  float  D_Range;        // レンジ = Max - Min
+  double D_M2;           // Welford法 二乗偏差累積
+  float  D_StdDev;       // 標準偏差
 
-  // 内部リレー群（既存）
-  State  M_CurrentState;
-  bool   M_BtnA_Pressed;
+  // 内部リレー群
+  State  M_CurrentState; // 現在の状態
+  bool   M_BtnA_Pressed; // ボタンA 立ち上がりエッジ検出フラグ
+  bool   M_BtnB_Pressed; // ボタンB 立ち上がりエッジ検出フラグ（ページング用）
+  int    M_ResultPage;   // RESULT画面のページ番号（0 or 1）
 };
 ```
 
-#### Tasks.cpp の変更（Logic_Task）
+#### Tasks.cpp の変更（実装済）
 
+**IO_Task での BtnB イベント検出:**
 ```cpp
-// IDLE → RUN 遷移時のリセット
+M5.update();
+static bool btnAPrev = false;
+static bool btnBPrev = false;
+
+const bool  btnANow  = M5.BtnA.isPressed();
+if (btnANow && !btnAPrev) {
+  G.M_BtnA_Pressed = true;
+}
+btnAPrev = btnANow;
+
+const bool  btnBNow  = M5.BtnB.isPressed();
+if (btnBNow && !btnBPrev) {
+  G.M_BtnB_Pressed = true;  // ページング用
+}
+btnBPrev = btnBNow;
+```
+
+**Logic_Task での IDLE→RUN 初期化と RESULT 統計計算:**
+```cpp
 case State::IDLE:
   G.D_Sum          = 0.0;
   G.D_Count        = 0;
   G.D_Max          = -FLT_MAX;   // Phase 2 追加
   G.D_Min          =  FLT_MAX;   // Phase 2 追加
   G.D_M2           = 0.0;        // Phase 2 追加
+  G.M_ResultPage   = 0;          // ページングをリセット
   G.M_CurrentState = State::RUN;
   break;
 
-// RUN → RESULT 遷移時の統計計算
 case State::RUN:
+  G.D_Average = (G.D_Count > 0)
+              ? static_cast<float>(G.D_Sum / G.D_Count)
+              : G.D_FilteredPV;
+  
   if (G.D_Count > 0) {
-    G.D_Average = static_cast<float>(G.D_Sum / G.D_Count);
-    G.D_Range   = G.D_Max - G.D_Min;
-    G.D_StdDev  = static_cast<float>(sqrt(G.D_M2 / G.D_Count));
+    G.D_Range = G.D_Max - G.D_Min;
+    G.D_StdDev = static_cast<float>(sqrt(G.D_M2 / G.D_Count));
+  } else {
+    G.D_Range = 0.0f;
+    G.D_StdDev = 0.0f;
   }
+  
+  G.M_ResultPage   = 0;
   G.M_CurrentState = State::RESULT;
   break;
+```
 
-// RUN状態の積算処理
+**RUN 中の Welford 法による逐次更新:**
+```cpp
 if (G.M_CurrentState == State::RUN && !isnan(G.D_FilteredPV)) {
   G.D_Count++;
-  const double delta  = G.D_FilteredPV - G.D_Sum / (G.D_Count - 1 + (G.D_Count == 1));
-  G.D_Sum    += G.D_FilteredPV;
-  const double delta2 = G.D_FilteredPV - G.D_Sum / G.D_Count;
-  G.D_M2     += delta * delta2;  // Welford 更新
+  const double prevMean = (G.D_Count == 1) ? 0.0 : G.D_Sum / (G.D_Count - 1);
+  const double delta  = G.D_FilteredPV - prevMean;
+  
+  G.D_Sum += G.D_FilteredPV;
+  const double newMean = G.D_Sum / G.D_Count;
+  const double delta2 = G.D_FilteredPV - newMean;
+  
+  G.D_M2 += delta * delta2;  // 二乗偏差を逐次累積
+  
   if (G.D_FilteredPV > G.D_Max) G.D_Max = G.D_FilteredPV;
   if (G.D_FilteredPV < G.D_Min) G.D_Min = G.D_FilteredPV;
 }
+
+// BtnB イベント処理（ページング）
+if (G.M_BtnB_Pressed) {
+  G.M_BtnB_Pressed = false;
+  if (G.M_CurrentState == State::RESULT) {
+    G.M_ResultPage = (G.M_ResultPage + 1) % 2;  // 0 ↔ 1 を切り替え
+  }
+}
 ```
+// BtnB イベント処理（ページング）
+if (G.M_BtnB_Pressed) {
+  G.M_BtnB_Pressed = false;
+  if (G.M_CurrentState == State::RESULT) {
+    G.M_ResultPage = (G.M_ResultPage + 1) % 2;  // 0 ↔ 1 を切り替え
+  }
+}
+```
+
+**UI_Task での RESULT 画面実装:**
+
+ページ遷移時の画面クリアと2ページレイアウト実装により、統一感のある表示を実現：
+
+```cpp
+static State prevState = State::IDLE;
+static int   prevPage  = -1;
+
+// 状態遷移時のクリア
+if (G.M_CurrentState != prevState) {
+  M5.Lcd.fillScreen(BLACK);
+  prevState = G.M_CurrentState;
+  prevPage = -1;
+}
+
+// ページ遷移時もクリア
+if (G.M_CurrentState == State::RESULT && prevPage != G.M_ResultPage) {
+  M5.Lcd.fillScreen(BLACK);
+  prevPage = G.M_ResultPage;
+}
+
+// Page 1
+if (G.M_ResultPage == 0) {
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.printf("RESULT (1/2)\n\n");
+  
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setCursor(0, 40);
+  M5.Lcd.printf("Temp:\n");
+  M5.Lcd.setCursor(0, 70);
+  M5.Lcd.printf("%5.1f C", G.D_FilteredPV);  // isnan() チェック省略
+  
+  M5.Lcd.setCursor(0, 120);
+  M5.Lcd.printf("Avg:\n");
+  M5.Lcd.setCursor(0, 150);
+  M5.Lcd.printf("%5.1fC", G.D_Average);
+}
+// Page 2
+else {
+  M5.Lcd.setTextSize(1);
+  M5.Lcd.printf("RESULT (2/2)\n");
+  
+  M5.Lcd.setTextSize(2);
+  M5.Lcd.setCursor(0, 30);
+  M5.Lcd.printf("StdDev:");
+  M5.Lcd.setCursor(160, 30);
+  M5.Lcd.printf("Range:");
+  
+  M5.Lcd.setCursor(0, 60);
+  M5.Lcd.printf("%5.1f", G.D_StdDev);
+  M5.Lcd.setCursor(160, 60);
+  M5.Lcd.printf("%5.1f", G.D_Range);
+  
+  M5.Lcd.setCursor(0, 110);
+  M5.Lcd.printf("Max:");
+  M5.Lcd.setCursor(160, 110);
+  M5.Lcd.printf("Min:");
+  
+  M5.Lcd.setCursor(0, 140);
+  M5.Lcd.printf("%5.1f", G.D_Max);
+  M5.Lcd.setCursor(160, 140);
+  M5.Lcd.printf("%5.1f", G.D_Min);
+}
+
+// ボタンガイド
+M5.Lcd.setCursor(0, 220);
+M5.Lcd.setTextSize(1);
+if (G.M_ResultPage == 0) {
+  M5.Lcd.print("[BtnA] Reset   [BtnB] Next");
+} else {
+  M5.Lcd.print("[BtnA] Reset   [BtnB] Prev");
+}
+```
+
+### UI 改善（実装済）
+
+**ページング機能の追加**:
+- BtnB でページ切り替え（0 ↔ 1）
+- RESULT 画面を2ページに分割
+- ページ遷移時に画面を完全クリア
+
+**フォントサイズの統一**: 
+- ラベル・値の区別をなくし、すべてコンテンツを **textSize(2)** で統一
+- 視覚的統一感を実現
+
+**レイアウト最適化**:
+- ページ1: Temp と Avg を中心に表示
+- ページ2: 4つの統計情報を2列×2行で効率的に表示
+- setCursor() で位置を正確に制御
 
 ### 開発難易度
 
@@ -319,5 +490,15 @@ UI_Task    → SD エラー状態の表示
 
 ---
 
+## 📝 更新履歴
+
+| 日付 | 更新内容 | 実施者 |
+|:---:|:---|:---|
+| 2026年2月24日 | Phase 1 完了 | Shimano |
+| 2026年2月25日 | **Phase 2 完了**（統計機能 + UI改善実装） | GitHub Copilot |
+
+---
+
 **作成**: Shimano  
-**最終更新**: 2026年2月24日
+**最終更新**: 2026年2月25日  
+**最終実装**: GitHub Copilot (Phase 2)
