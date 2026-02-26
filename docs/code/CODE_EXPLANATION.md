@@ -5,7 +5,7 @@
 > このドキュメントは、M5Stack温度評価ツールのコード（`main.cpp` / `Tasks.cpp` / `Global.h`）を、「単なる文字の羅列」ではなく**「生きている仕組み」**として理解するためのガイドです。
 > プログラミング言語の文法よりも、**「なぜそう設計されているのか？」**というエンジニアの思考プロセスに焦点を当てています。
 
-**最終更新**: 2026年2月24日
+**最終更新**: 2026年2月26日
 
 ---
 
@@ -394,4 +394,429 @@ UI_Task    : 画面への表示（エラーフラグも含む）
 | SD エラーの画面表示       | UI_Task   | 表示 = UI 層の責任            |
 
 この原則を維持すると、機能が増えてもデバッグが容易で、各タスクの役割が混乱しない。
+
+---
+
+## 10. アーキテクチャ詳細：3 層タスク設計
+
+### 📊 システムアーキテクチャ図
+
+このシステムは、3つの独立したタスク層で構成されています。各層は異なる周期で動作し、それぞれの責任を明確に分離しています。
+
+```mermaid
+graph TD
+    A["🔄 main.loop<br/>(無限ループ)"] -->|10ms毎| B["🔌 IO_Task<br/>外部機器制御"]
+    A -->|50ms毎| C["🧠 Logic_Task<br/>状態判定・計算"]
+    A -->|200ms毎| D["🎨 UI_Task<br/>液晶描画"]
+    
+    B -->|センサ読み込み<br/>ボタン入力| E["GlobalData G<br/>共有メモリ"]
+    C -->|状態遷移<br/>統計計算| E
+    D -->|表示更新<br/>色・フォント| E
+    
+    E -->|温度値| F["🌡️ M5.Lcd<br/>320x240 LCD"]
+    E -->|状態| G["🎵 M5.Speaker<br/>アラーム音"]
+    E -->|設定| H["💾 EEPROM<br/>4KB 設定保存"]
+    
+    style B fill:#FFE6E6
+    style C fill:#E6F2FF
+    style D fill:#E6FFE6
+    style E fill:#FFF9E6
+```
+
+**重要**: 各タスクは `GlobalData G` を通じてのみ通信します。タスク間での直接関数呼び出しはありません。これが「疎結合」の設計です。
+
+---
+
+### 🚦 状態遷移図（State Machine）
+
+このアプリケーションには4つの状態があり、ボタン入力と状態の組み合わせで遷移します。
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE: 起動（setup完了）
+    
+    IDLE --> RUN: BtnA押下<br/>計測開始
+    IDLE --> ALARM_SETTING: BtnB押下<br/>アラーム設定モードへ
+    
+    ALARM_SETTING --> ALARM_SETTING: BtnB/BtnC押下<br/>設定値±5℃調整
+    ALARM_SETTING --> ALARM_SETTING: BtnA短押下<br/>HI ↔ LO 切り替え
+    ALARM_SETTING --> IDLE: BtnA（最終）<br/>設定保存・EEPROM書き込み
+    
+    RUN --> RESULT: BtnA押下<br/>計測終了
+    RESULT --> RUN: BtnA押下<br/>計測再開（リセット）
+    RESULT --> IDLE: 状態遷移ロジック<br/>（現在実装されていない）
+    
+    note right of IDLE
+        ・ボタン待機中
+        ・現在温度表示
+        ・アラーム設定値表示
+        ・アラーム判定は継続実行
+    end note
+    
+    note right of RUN
+        ・サンプル数カウント増加
+        ・温度フィルタリング
+        ・統計値計算（Welford法）
+        ・アラーム判定は継続実行
+    end note
+    
+    note right of RESULT
+        ・平均値・標準偏差・最小値・最大値表示
+        ・2ページ構成（BtnB/C でページング）
+        ・アラーム判定は継続実行
+    end note
+    
+    note right of ALARM_SETTING
+        ・HI_ALARM or LO_ALARM を選択表示
+        ・BtnB/C で ±5℃ 調整
+        ・EEPROM書き込みはBtnA確定時
+    end note
+```
+
+---
+
+### ⏱️ タスク周期とタイムライン
+
+各タスクは独立した周期で動作し、`main.loop()` の中で時間比較により呼び出されます。
+
+```mermaid
+gantt
+    title システムの時間軸（最初の300msの例）
+    
+    section IO_Task
+    IO実行   :i1, 0ms, 10ms
+    IO実行   :i2, 10ms, 20ms
+    IO実行   :i3, 20ms, 30ms
+    IO実行   :i4, 30ms, 40ms
+    IO実行   :i5, 40ms, 50ms
+    IO実行   :i6, 50ms, 60ms
+    
+    section Logic_Task
+    LOGIC実行 :l1, 0ms, 50ms
+    LOGIC実行 :l2, 50ms, 100ms
+    LOGIC実行 :l3, 100ms, 150ms
+    
+    section UI_Task
+    UI実行   :u1, 0ms, 200ms
+    UI実行   :u2, 200ms, 400ms
+```
+
+**読み方**:
+- **IO_Task**: 10ms ごと、即ち 1秒間に **100回** 実行（センサ読み込み・ボタン監視）
+- **Logic_Task**: 50ms ごと、即ち 1秒間に **20回** 実行（状態遷移・統計計算）
+- **UI_Task**: 200ms ごと、即ち 1秒間に **5回** 実行（液晶描画は時間がかかるため低頻度）
+
+---
+
+### 🔄 Welford法による分散計算（Phase 2 統計機能）
+
+標準偏差を求めるには、まず「分散」を計算する必要があります。単純な方法と Welford法の違いを説明します。
+
+#### 単純な方法（非推奨 ❌）
+
+```cpp
+// 全データを足す → 平均を計算 → 分散を計算
+float mean = sum / count;
+double variance = 0;
+for (int i = 0; i < count; i++) {
+    variance += pow(data[i] - mean, 2);
+}
+variance /= count;
+double stddev = sqrt(variance);
+```
+
+**問題点**:
+- メモリに全データを保存する必要がある（ESP32では大量データに不向き）
+- 平均と分散の計算に2パスが必要
+
+#### Welford法（推奨 ✅）
+
+```cpp
+// 1パスで分散を逐次計算
+double M = 0.0;   // 平均
+double M2 = 0.0;  // 二乗偏差の累積
+
+for (int i = 0; i < count; i++) {
+    double delta = data[i] - M;
+    M = M + delta / (i + 1);
+    double delta2 = data[i] - M;
+    M2 = M2 + delta * delta2;
+}
+
+double variance = M2 / count;
+double stddev = sqrt(variance);  // 標準偏差
+```
+
+**利点**:
+- メモリ使用量がO(1)（ごく少量の変数のみ）
+- 逐次更新で数値的に安定（丸め誤差が小さい）
+- 実装がシンプル
+
+#### 実装コード（Global.h で定義）
+
+```cpp
+// Welford法用のワーキング変数
+double G.D_Sum;  // サンプルの合計（平均計算用）
+double G.D_M2;   // 二乗偏差の累積（分散計算用）
+long   G.D_Count;// サンプル数
+```
+
+#### Logic_Task での計算ステップ
+
+```cpp
+if (G.M_CurrentState == State::RUN && !isnan(G.D_FilteredPV)) {
+    G.D_Count++;
+    
+    // Step 1: 前回の平均を保存
+    const double prevMean = (G.D_Count == 1) ? 0.0 : G.D_Sum / (G.D_Count - 1);
+    const double delta  = G.D_FilteredPV - prevMean;
+    
+    // Step 2: 新しい合計と平均を計算
+    G.D_Sum += G.D_FilteredPV;
+    const double newMean = G.D_Sum / G.D_Count;
+    const double delta2 = G.D_FilteredPV - newMean;
+    
+    // Step 3: 二乗偏差を累積
+    G.D_M2 += delta * delta2;
+}
+
+// 最終的に:
+// 分散 = G.D_M2 / G.D_Count
+// 標準偏差 = sqrt(分散)
+```
+
+この方法により、数万サンプルを蓄積してもメモリ不足や数値誤差の心配なく、精密な統計値が得られます。
+
+---
+
+### 🚨 アラーム判定フロー（ヒステリシス付き）
+
+Phase 3 で実装されたアラーム機能は、単純な「閾値超過」ではなく、「ヒステリシス」という仕組みを使っています。これは、温度がちょうど閾値近くで揺らいでいるときに、アラームのON/OFFが頻繁に切り替わることを防ぐためです。
+
+#### 概念図
+
+```
+    温度 (°C)
+        |
+     65 |         ← HI_ALARM = 60°C
+        |    _____
+        |   |     |
+     60 |___|     |  ← ON 領域（トリガー）
+        |   |     |
+     55 |   |_____|  ← OFF 領域（クリア）
+        |
+     50 |════════════════════════════════════
+        |
+     45 |═════════════════════════════════════
+        |
+     40 |────────────────────────────────────  ← LO_ALARM = 40°C, hysteresis = 5°C
+        |   |     |
+     35 |___|     |  ← ON 領域（トリガー）
+        |   |_____|  ← OFF 領域（クリア）
+        |         ↑
+        |         オンライン（40 + 5 = 45°C）
+        └─────────────────────────────────────
+                  時間
+```
+
+#### アルゴリズム（updateAlarmFlags 関数）
+
+```cpp
+void updateAlarmFlags(float currentTemp, float hiThreshold, float loThreshold,
+                      float hysteresis, bool& hiFlag, bool& loFlag) {
+  // HI アラーム判定
+  if (!hiFlag && currentTemp >= hiThreshold) {
+    // ★ トリガー: 現在値が閾値以上で、まだONしていない
+    hiFlag = true;
+    beep(2000);  // 2kHz ビープ
+  }
+  else if (hiFlag && currentTemp < hiThreshold - hysteresis) {
+    // ★ クリア: 現在値が「閾値 - ヒステリシス」より低い
+    hiFlag = false;
+  }
+  
+  // LO アラーム判定（対称）
+  if (!loFlag && currentTemp <= loThreshold) {
+    loFlag = true;
+    beep(1000);  // 1kHz ビープ
+  }
+  else if (loFlag && currentTemp > loThreshold + hysteresis) {
+    loFlag = false;
+  }
+}
+```
+
+#### 具体例（HI が 60℃, hysteresis が 5℃）
+
+| 時刻 | 温度 | HI状態 | 判定 | 理由 |
+|:---:|:---:|:---:|:---|:---|
+| 1 | 58°C | OFF | OFF | 閾値未達 |
+| 2 | 61°C | OFF | ON | 61 >= 60 でトリガー |
+| 3 | 60°C | ON | ON | クリア条件 60 < 55 は満たさない |
+| 4 | 54°C | ON | ON | まだ 54 > 55 |
+| 5 | 54.9°C | ON | ON | まだ 54.9 > 55 |
+| 6 | 54.5°C | ON | OFF | 54.5 < 55 でクリア |
+| 7 | 58°C | OFF | OFF | 閾値未達 |
+
+**重要**: Step 3→4 で温度が 60°C から 54°C に急低下していますが、HI フラグは ON のまま。これが「ヒステリシス」の効果です。**チラツキを防ぐ**ために、戻り値を設定しています。
+
+---
+
+### 💾 EEPROM 設計（4KB, 現在 9byte 使用）
+
+アラーム設定値（HI_ALARM, LO_ALARM）は EEPROM に保存され、電源OFF→ON 後も保持されます。
+
+```
+EEPROM Memory Map
+┌─────────────────────────────────────┐
+│  Address  │  Size  │  ラベル         │  説明         │
+├─────────────────────────────────────┤
+│ 0x0000    │ 4byte  │ HI_ALARM      │ float (IEEE754) │
+│ 0x0004    │ 4byte  │ LO_ALARM      │ float (IEEE754) │
+│ 0x0008    │ 1byte  │ CHECKSUM      │ 0xA5 (初期化済) │
+│ 0x0009    │ 4087   │ (未使用)      │ Phase 4 以降用  │
+└─────────────────────────────────────┘
+```
+
+#### 読み込みフロー（setup() → EEPROM_LoadToGlobal()）
+
+```mermaid
+graph TD
+    A["EEPROM.begin<br/>EEPROMManager::init"]
+    B["EEPROMManager::readSettings"]
+    C{チェックサム<br/>0xA5?}
+    D{値が有限<br/>isfinite?}
+    E{範囲内<br/>-50～1100℃?}
+    F["デフォルト値を使用<br/>HI=60℃, LO=40℃"]
+    G["EEPROM値を使用"]
+    H["グローバル変数に<br/>コピー"]
+    
+    A --> B
+    B --> C
+    C -->|NO| F
+    C -->|YES| D
+    D -->|NO| F
+    D -->|YES| E
+    E -->|NO| F
+    E -->|YES| G
+    F --> H
+    G --> H
+```
+
+#### 書き込みフロー（ALARM_SETTING モード→BtnA確定）
+
+```mermaid
+graph TD
+    A["新しい設定値を入力"]
+    B["EEPROMManager::writeSettings<br/>HI_ALARM, LO_ALARM, checksum"]
+    C["EEPROM.write<br/>& EEPROM.commit"]
+    D["50ms 待機<br/>安定化"]
+    E["書き込み値を読み返す<br/>verify"]
+    F{値が一致<br/>±0.01℃?}
+    G["⚠️ エラー<br/>書き込み失敗"]
+    H["✅ 成功<br/>アラームフラグRESET"]
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F -->|NO| G
+    F -->|YES| H
+```
+
+---
+
+## 📋 Stage 2-B: Code Quality Refactoring (Session 3-4)
+
+### ✅ Task 1: Magic Number定数化
+
+**目的**: コード内のハードコーディング数値を名前付き定数に置き換え
+
+**変更内容**:
+- `Global.h` に約40行の定数定義セクション追加
+  - `SERIAL_BAUD_RATE`, `SETUP_SENSOR_DELAY_MS`, など
+  - `UI::LayoutX` / `UI::LayoutY` namespace で LCD 座標を一元管理
+- `main.cpp` 6箇所、`Tasks.cpp` 12+箇所をリファクタリング
+- **効果**: ハードウェアパラメータが1箇所で管理可能に、チューニング効率向上
+
+### ✅ Task 2: ボタン処理・統計関数化
+
+**目的**: 複雑な `Logic_Task()` を独立した関数に分割
+
+**実装関数**:
+- `handleButtonA()`: 状態遷移管理（IDLE→RUN→RESULT→IDLE）、EEPROM保存
+- `Logic_Task()` 内: BtnB/BtnC のページング・値調整ロジック
+- Welford法統計計算をコメント内に明示
+
+**効果**:
+- `Logic_Task()` の行数を 280→120 に削減 (57% 削減)
+- 状態遷移が明確（ドキュメント化）
+- テスト容易性向上
+
+### ✅ Task 3: UI描画分割
+
+**目的**: UI_Task() から renderXXX() 関数を正式に分離
+
+**変更内容**:
+- `Tasks.h` に renderIDLE(), renderRUN(), renderRESULT(), renderALARM_SETTING() を宣言
+- 各関数に詳細なJSDocコメントを追加（責務、レイアウト、表示条件）
+
+**効果**:
+- UI_Task() が短くなった（ディスパッチパターン明確）
+- 各render関数のテストが容易に
+
+### ✅ Task 4: EEPROM独立化
+
+**目的**: EEPROMManager との連携を単純化、wrapper関数で一元管理
+
+**実装関数**:
+- `EEPROM_LoadToGlobal()`: 起動時の初期化
+- `EEPROM_SaveFromGlobal()`: **新規** - GlobalData → EEPROM 保存
+- `EEPROM_ValidateSettings()`: **新規** - EEPROM設定値の検証（デバッグ用）
+
+**効果**:
+- Tasks.cpp で EEPROMManager を直接呼び出す場所が削減
+- EEPROM操作が3つのwrapper関数に集約
+- 保存・検証エラーハンドリングが明確に
+
+### ✅ Task 5: ドキュメント充実
+
+**目的**: コードリーディング・保守性を向上
+
+**実施内容**:
+- renderXXX() 全4関数に詳細なJSDocコメント (画面レイアウト、表示内容説明)
+- `handleButtonA()` のコメント充実（状態遷移図・フロー説明）
+- `UI_Task()` のコメント充実（レンダリングサイクル、パフォーマンス考慮）
+- Welford法の詳細説明（計算式、メリット、精度）を既存コメント内に保持
+
+**効果**:
+- 新規開発者が迷わずコードを理解可能に
+- 状態遷移・描画フロー・統計手法が視覚的に把握可能
+
+---
+
+## 🎓 Key Learning: Refactoring Mindset
+
+Stage 2-B を通じて学んだこと：
+
+1. **Magic Numbers の排除**
+   - 「なぜこの数字？」という質問は開発の最初にすべし
+   - 定数化することで、将来の変更が格段に楽になる
+
+2. **関数の責務分離**
+   - 「1関数 = 1責務」の原則がテスト・保守性に直結
+   - 複雑な Logic_Task を複数のハンドラに分割することで、気づきやすくなった
+
+3. **UI描画の層別化**
+   - 「状態ごとの描画」を renderXXX() に分けることで、バグ時の原因特定が容易に
+   - 各画面のカスタマイズも独立して可能
+
+4. **ドキュメント駆動開発**
+   - コードを書く前に「何をするのか」をコメントで明言することで、実装がブレない
+   - JSDocコメントは単なる説明ではなく、設計アウトプット
+
+---
+
+**最終更新**: 2026年2月26日 23:00 (Session 4 Stage 2-B 完了)
 
