@@ -1,4 +1,6 @@
 #include "Global.h"
+#include "SDManager.h"      // Phase 4: SD カード操作
+#include <SPI.h>
 
 // ── Forward Declarations （EEPROM 操作関数） ────────────────────────────────
 bool EEPROM_SaveFromGlobal();
@@ -31,6 +33,25 @@ void initGlobalData() {
   G.D_HI_ALARM_CURRENT = HI_ALARM_TEMP;
   G.D_LO_ALARM_CURRENT = LO_ALARM_TEMP;
   G.M_SettingIndex     = 0;  // HI側から開始
+
+  // Phase 4: SDカード関連初期化
+  G.M_SDReady          = false;      // SD未検出状態で開始
+  G.M_SDError          = false;      // エラーなし
+  G.M_CurrentDataFile[0] = '\0';     // ファイル名クリア (空文字列)
+  G.M_SDWriteCounter   = 0;          // カウンタリセット
+  G.M_RunStartTime     = 0;          // RUN開始時刻未定義
+  
+  // SDBuffer 初期化（メンバー初期化）
+  G.M_SDBuffer.elapsedSeconds = 0;
+  G.M_SDBuffer.temperature    = NAN;
+  G.M_SDBuffer.state          = "IDLE";
+  G.M_SDBuffer.sampleCount    = 0;
+  G.M_SDBuffer.averageTemp    = NAN;
+  G.M_SDBuffer.stdDev         = 0.0f;
+  G.M_SDBuffer.maxTemp        = NAN;
+  G.M_SDBuffer.minTemp        = NAN;
+  G.M_SDBuffer.hiAlarm        = false;
+  G.M_SDBuffer.loAlarm        = false;
 }
 
 // ========== Phase 3 アラーム判定ロジック関数 ================================
@@ -120,6 +141,16 @@ void updateAlarmFlags(float currentTemp, float hiThreshold, float loThreshold,
 
 // ========== IO Layer (10ms周期) ==================================================
 void IO_Task() {
+  // DEBUG: エントリログ（出力頻度を制限してシリアル洪水を防ぐ）
+  if (UI::SHOW_DEBUG_LOGS) {
+    static unsigned long lastIoLogMs = 0;
+    unsigned long entryNow = millis();
+    if (entryNow - lastIoLogMs >= 1000UL) { // 1秒ごとに出力
+      lastIoLogMs = entryNow;
+      Serial.printf("[IO_Task] entry (millis=%lu)\n", entryNow);
+    }
+  }
+
   // MAX31855 の変換時間に合わせ、TC_READ_INTERVAL_MS ごとに読み取る。
   // フィルタは新データ到着時のみ適用（同じ値で繰り返すとα=0.1の意味が消える）。
   static unsigned long lastTcRead = 0;
@@ -128,13 +159,32 @@ void IO_Task() {
   if (now - lastTcRead >= TC_READ_INTERVAL_MS) {
     lastTcRead = now;
 
-    const float rawTemp = thermocouple.readCelsius();
-    if (!isnan(rawTemp)) {
+    if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] about to begin thermocouple read");
+    // MAX31855 読み取り（Adafruit_BusIO が内部で CS / SPI トランザクションを管理）
+    // ※ SD カード CS (GPIO4=TFCARD_CS_PIN) と MAX31855 CS (GPIO5) は別ピンのため、
+    //   単一スレッド(協調スケジューラ)内では SPI 競合は発生しない。
+    float rawTemp = NAN;
+    unsigned long readStart = 0, readEnd = 0;
+    const int maxRetry = 3;
+    for (int attempt = 0; attempt < maxRetry; ++attempt) {
+      readStart = millis();
+      rawTemp = thermocouple.readCelsius();
+      readEnd = millis();
+      // 異常値判定: NANまたは絶対値1000超
+      if (!isnan(rawTemp) && fabs(rawTemp) < 1000.0f) break;
+      delay(5); // 少し待ってリトライ
+    }
+    if (UI::SHOW_DEBUG_LOGS) {
+      Serial.printf("[IO_Task] readCelsius returned in %lums\n", (readEnd - readStart));
+      if (isnan(rawTemp)) Serial.println("[IO_Task] readCelsius -> NAN");
+      else Serial.printf("[IO_Task] readCelsius -> %.3f\n", rawTemp);
+    }
+    if (!isnan(rawTemp) && fabs(rawTemp) < 1000.0f) {
       G.D_RawPV = rawTemp;
       // 1次遅れフィルタ: y[n] = y[n-1]*(1-α) + x[n]*α
       // α=0.1 のとき約22サンプル(11秒)で新値の90%に収束
       G.D_FilteredPV = isnan(G.D_FilteredPV)
-                     ? rawTemp                                           // 初回: 即時追従
+                     ? rawTemp
                      : G.D_FilteredPV * (1.0f - FILTER_ALPHA)
                        + rawTemp      *           FILTER_ALPHA;
     }
@@ -149,6 +199,7 @@ void IO_Task() {
   const bool  btnANow  = M5.BtnA.isPressed();
   if (btnANow && !btnAPrev) {
     G.M_BtnA_Pressed = true;  // 立ち上がりエッジ
+    if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] BtnA pressed (edge)");
   }
   btnAPrev = btnANow;
 
@@ -156,6 +207,7 @@ void IO_Task() {
   const bool  btnBNow  = M5.BtnB.isPressed();
   if (btnBNow && !btnBPrev) {
     G.M_BtnB_Pressed = true;  // 立ち上がりエッジ（Logic_Task で状態別に処理）
+    if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] BtnB pressed (edge)");
   }
   btnBPrev = btnBNow;
 
@@ -163,6 +215,7 @@ void IO_Task() {
   const bool btnCNow = M5.BtnC.isPressed();
   if (btnCNow && !btnCPrev) {
     G.M_BtnC_Pressed = true;  // 立ち上がりエッジ（ALARM_SETTING時に -5℃）
+    if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] BtnC pressed (edge)");
   }
   btnCPrev = btnCNow;
 
@@ -182,6 +235,47 @@ void IO_Task() {
   // ← アラーム判定ロジックを専用関数に委譲
   updateAlarmFlags(G.D_FilteredPV, G.D_HI_ALARM_CURRENT, G.D_LO_ALARM_CURRENT,
                    ALARM_HYSTERESIS, G.M_HiAlarm, G.M_LoAlarm);
+
+  // ────── Phase 4: SDカード書き込みロジック ──────
+  // RUN状態のみ、SD書き込みを実行
+  if (G.M_CurrentState == State::RUN && G.M_SDReady && !G.M_SDError) {
+    // 1. 現在のデータを SDBuffer に蓄積
+    G.M_SDBuffer.elapsedSeconds = (now - G.M_RunStartTime) / 1000UL;  // millis() → 秒単位
+    G.M_SDBuffer.temperature    = G.D_FilteredPV;
+    G.M_SDBuffer.state          = "RUN";
+    G.M_SDBuffer.sampleCount    = G.D_Count;
+    G.M_SDBuffer.averageTemp    = G.D_Average;
+    G.M_SDBuffer.stdDev         = G.D_StdDev;
+    G.M_SDBuffer.maxTemp        = G.D_Max;
+    G.M_SDBuffer.minTemp        = G.D_Min;
+    G.M_SDBuffer.hiAlarm        = G.M_HiAlarm;
+    G.M_SDBuffer.loAlarm        = G.M_LoAlarm;
+
+    // 2. 書き込みカウンタをインクリメント
+    G.M_SDWriteCounter++;
+
+    // 3. SD_WRITE_INTERVAL サンプル到達かつ、Welford計算が完了したら書き込み実行
+    // 【最適化】D_Count >= 10 により 100ms 経過を保証
+    //   - 100ms 時点で Logic_Task(50ms周期) が少なくとも2回実行完了
+    //   - よって D_Average, D_StdDev が確実に計算済み
+    // ※ 前回: D_Count >= 2 では 20-30ms で早期実行 → Welford未完了
+    if (G.M_SDWriteCounter >= SD_WRITE_INTERVAL && G.D_Count >= 10) {
+      // SDManager を使用してデータをSD カードに書き込み
+      if (!SDManager::writeData(G.M_SDBuffer)) {
+        // 書き込み失敗
+        G.M_SDError = true;
+        Serial.printf("[IO_Task] SD write failed: %s\n", SDManager::getLastError());
+      } else {
+        // 書き込み成功時のデバッグ出力
+        if (UI::SHOW_DEBUG_LOGS) {
+          Serial.printf("[IO_Task] SD Write: %.1f°C, Samples=%u, Avg=%.1f\n",
+                        G.M_SDBuffer.temperature, G.M_SDBuffer.sampleCount,
+                        isnan(G.M_SDBuffer.averageTemp) ? 0.0f : G.M_SDBuffer.averageTemp);
+        }
+      }
+      G.M_SDWriteCounter = 0;  // カウンタリセット
+    }
+  }
 }
 
 // ========== Logic Layer ヘルパー関数（状態遷移・ボタン処理封遠）================
@@ -225,7 +319,43 @@ void handleButtonA() {
       G.D_Max          = -FLT_MAX;
       G.D_Min          =  FLT_MAX;
       G.D_M2           = 0.0;
+      
+      // ────── 重要：統計出力値を初期化（writeData() 前の not-ready 状態防止） ──────
+      G.D_Average      = NAN;      // Welford 計算完了まで NAN を保持
+      G.D_StdDev       = 0.0f;     // まだ計算されていない
+      G.D_Range        = 0.0f;
+      
       G.M_CurrentState = State::RUN;
+
+      // ────── Phase 4: SD ファイル作成処理 ──────
+      // RUN開始時にファイルを新規作成（RTC未実装時は相対時間ベースのファイル名使用）
+      if (G.M_SDReady && !G.M_SDError) {
+        // ※ 応急処置: RTC未実装のため、ファイル名を簡易的に生成
+        //   RTC追加後は正式な YYYYMMDD_HHMMSS フォーマットに切り替え
+        static unsigned int fileCounter = 0;
+        snprintf(G.M_CurrentDataFile, sizeof(G.M_CurrentDataFile)-1, 
+                 "/DATA_%04u.csv", fileCounter++);
+        
+        // ファイル作成
+        if (!SDManager::createNewFile(G.M_CurrentDataFile)) {
+          G.M_SDError = true;
+          Serial.printf("[handleButtonA] SD file create error: %s\n", 
+                        SDManager::getLastError());
+        } else {
+          // ヘッダ行を書き込み
+          if (!SDManager::writeHeader()) {
+            G.M_SDError = true;
+            Serial.printf("[handleButtonA] SD header write error: %s\n",
+                          SDManager::getLastError());
+          } else {
+            // 開始時刻を記録（相対時間の基準点）
+            G.M_RunStartTime = millis();
+            Serial.printf("[handleButtonA] SD file created: %s\n", 
+                          G.M_CurrentDataFile);
+          }
+        }
+      }
+
       break;
     }
 
@@ -239,6 +369,14 @@ void handleButtonA() {
         G.D_Average = G.D_FilteredPV;
         G.D_Range   = 0.0f;
         G.D_StdDev  = 0.0f;
+      }
+
+      // ────── Phase 4: SD ファイルクローズ処理 ──────
+      // RUN終了時（RESULT遷移時）にファイルをフラッシュ・クローズ
+      if (G.M_SDReady && !G.M_SDError) {
+        SDManager::flush();      // バッファをディスクに書き込み
+        SDManager::closeFile();  // ファイルをクローズ
+        Serial.printf("[handleButtonA] SD file closed: %s\n", G.M_CurrentDataFile);
       }
       
       G.M_ResultPage   = 0;  // ページングをリセット
@@ -325,6 +463,12 @@ void Logic_Task() {
     // Max/Min 更新（最大・最小値追跡）
     if (G.D_FilteredPV > G.D_Max) G.D_Max = G.D_FilteredPV;
     if (G.D_FilteredPV < G.D_Min) G.D_Min = G.D_FilteredPV;
+    
+    // 【修正】RUN中にリアルタイムで D_Average/D_StdDev を計算
+    // ※ 前回: RESULT遷移時のみ計算 → RUN中の値が NAN → CSV出力で 0.0に変換
+    // ※ 今回: 毎周期 (50ms) に計算 → SD write時に正確な値が利用可能
+    G.D_Average = static_cast<float>(G.D_Sum / G.D_Count);
+    G.D_StdDev  = static_cast<float>(sqrt(G.D_M2 / G.D_Count));
   }
   
   // ── BtnB イベント処理（ページング / 設定） ──
@@ -395,45 +539,206 @@ void Logic_Task() {
  * @see renderRUN(), renderRESULT(), renderALARM_SETTING()
  * @see UI_Task()
  */
-void renderIDLE() {
-  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-  
-  // ── 状態行 ──
-  M5.Lcd.setCursor(0, UI::PosY::STATE_LABEL);
-  M5.Lcd.printf("STATE: IDLE  \n");
 
-  // Phase 3: アラーム中は赤色に切り替え
-  if (G.M_HiAlarm || G.M_LoAlarm) {
-    M5.Lcd.setTextColor(RED, BLACK);
-  } else {
-    M5.Lcd.setTextColor(WHITE, BLACK);
-  }
+// ════════════════════════════════════════════════════════════════════════════
+// UI テンプレート関数 （根本的改善版）
+// ════════════════════════════════════════════════════════════════════════════
 
-  // ── 温度行 ──
-  M5.Lcd.setCursor(0, UI::PosY::TEMP_LABEL);
-  M5.Lcd.printf("Temp:  ");
-  
-  M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE);
-  if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.printf("---.-  C\n");
-  } else {
-    M5.Lcd.printf("%5.1f  C\n", G.D_FilteredPV);
-  }
-
-  // ── アラーム設定値表示（デバッグ用） ──
-  if (UI::SHOW_ALARM_SETTINGS_ON_IDLE) {
-    M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
-    M5.Lcd.setTextColor(WHITE, BLACK);
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE + 40);
-    M5.Lcd.printf("Alarm: HI=%.1f LO=%.1f\n", G.D_HI_ALARM_CURRENT, G.D_LO_ALARM_CURRENT);
-  }
-
-  // ── ボタンガイド（下端固定） ──
-  M5.Lcd.setCursor(0, UI::PosY::BUTTON_INFO);
+/**
+ * @brief シンプルテキスト行を描画（単一テキストサイズ）
+ * 
+ * @param y 描画Y座標
+ * @param text 表示テキスト
+ * @param textColor テキスト色（WHITE, RED, GREEN, YELLOW など）
+ * 
+ * @details
+ * STATE: IDLE, SD Ready など、単一テキストサイズで表示するテキスト行向け
+ * 毎回 setCursor() と setTextColor() を明示的に設定し、残像を防ぐ
+ */
+void renderSimpleLine(uint16_t y, const char *text, uint16_t textColor) {
   M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
-  M5.Lcd.setTextColor(WHITE, BLACK);
-  M5.Lcd.print("[BtnA] Start  [BtnB] Setting");
+  M5.Lcd.setCursor(UI::PosX::LEFT, y);
+  M5.Lcd.setTextColor(textColor, BLACK);
+  M5.Lcd.printf("%s\n", text);
 }
+
+/**
+ * @brief ラベル + 値行を描画（混合テキストサイズ）
+ * 
+ * @param y ラベルのY座標
+ * @param label ラベルテキスト（例: "Temp: "）
+ * @param value 浮動小数点値
+ * @param unit 単位（例: "°C"）
+ * @param textColor テキスト色
+ * @param isNaN NaN時の表示処理（true: "---.-"を表示）
+ * 
+ * @details
+ * 「Temp: 25.3 °C」のように、ラベルと値を異なるサイズで表示
+ * ラベル: TEXTSIZE_GUIDE（小, 8px）
+ * 値: TEXTSIZE_VALUE（大, 16px）
+ * 
+ * ラベルと値のY座標を調整して見栄え良く配置
+ */
+void renderLabelValueLine(uint16_t y,
+                          const char *label,
+                          float value,
+                          const char *unit,
+                          uint16_t textColor,
+                          bool isNaN = false) {
+  // ラベルを小さいサイズで表示
+  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
+  M5.Lcd.setCursor(UI::PosX::LEFT, y);
+  M5.Lcd.setTextColor(textColor, BLACK);
+  M5.Lcd.printf("%s", label);
+  
+  // 値を大きいサイズで表示（Y座標を調整: 大文字の高さ分上にオフセット）
+  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
+  M5.Lcd.setCursor(UI::PosX::VALUE_START, y - 4);  // -4px で大文字を整列
+  M5.Lcd.setTextColor(textColor, BLACK);
+  
+  if (isnan(value) || isNaN) {
+    M5.Lcd.printf("---.--  %s", unit);
+  } else {
+    M5.Lcd.printf("%6.1f  %s", value, unit);
+  }
+  M5.Lcd.printf("\n");
+}
+
+/**
+ * @brief 中央揃えテキスト行を描画
+ * 
+ * @param y 描画Y座標
+ * @param text テキスト
+ * @param textColor テキスト色
+ * 
+ * @details
+ * 固定幅フォント（1文字6px）で中央揃え計算
+ */
+void renderCenterLine(uint16_t y, const char *text, uint16_t textColor) {
+  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
+  uint16_t textWidth = strlen(text) * 6;  // 固定幅フォント: 1文字 6px
+  uint16_t x = (320 - textWidth) / 2;
+  M5.Lcd.setCursor(x, y);
+  M5.Lcd.setTextColor(textColor, BLACK);
+  M5.Lcd.printf("%s\n", text);
+}
+
+/**
+ * @brief 左右2値を同一行に大き目の数値で表示するヘルパ
+ */
+void renderTwoValueLine(uint16_t y,
+                        const char *leftLabel, float leftValue, const char *leftUnit,
+                        const char *rightLabel, float rightValue, const char *rightUnit,
+                        uint16_t textColor) {
+  // 左側ラベル
+  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
+  M5.Lcd.setCursor(UI::PosX::LEFT, y);
+  M5.Lcd.setTextColor(textColor, BLACK);
+  M5.Lcd.printf("%s", leftLabel);
+
+  // 左側値（大）
+  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
+  M5.Lcd.setCursor(UI::PosX::VALUE_START, y - 4);
+  if (isnan(leftValue)) {
+    M5.Lcd.printf("---.-- %s", leftUnit);
+  } else {
+    M5.Lcd.printf("%6.1f %s", leftValue, leftUnit);
+  }
+
+  // 右側ラベル
+  uint16_t rightLabelX = UI::PosX::CENTER;
+  uint16_t rightValueX = UI::PosX::CENTER + (UI::PosX::VALUE_START - UI::PosX::LEFT);
+  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
+  M5.Lcd.setCursor(rightLabelX, y);
+  M5.Lcd.setTextColor(textColor, BLACK);
+  M5.Lcd.printf("%s", rightLabel);
+
+  // 右側値（大）
+  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
+  M5.Lcd.setCursor(rightValueX, y - 4);
+  if (isnan(rightValue)) {
+    M5.Lcd.printf("---.-- %s", rightUnit);
+  } else {
+    M5.Lcd.printf("%6.1f %s", rightValue, rightUnit);
+  }
+
+  M5.Lcd.printf("\n");
+}
+
+/**
+ * @brief 指定行の領域を黒で消去（部分更新用）
+ * 
+ * @param y_start 開始Y座標
+ * @param y_end 終了Y座標（消去対象外）
+ * 
+ * @details
+ * 全画面消去（fillScreen）の代わりに、特定行のみを消去
+ * ちらつき削減のための部分更新
+ */
+void clearLine(uint16_t y_start, uint16_t y_end) {
+  uint16_t height = (y_end > y_start) ? (y_end - y_start) : 1;
+  M5.Lcd.fillRect(0, y_start, 320, height, BLACK);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+
+void renderIDLE() {
+  // ════════════════════════════════════════════════════════════════════
+  // IDLE 画面レイアウト（新設計: 行ベース）
+  // ════════════════════════════════════════════════════════════════════
+  // 
+  // 行1 (Y=0～12):   STATE: IDLE
+  // 行2 (Y=12～32): Temp: 25.3 °C
+  // 行3 (Y=32～44): (reserved for future)
+  // 行4 (Y=44～64): (future use)
+  // 行5 (Y=64～76): SD Ready / SD Error
+  // 行6 (Y=76～88): (space)
+  // 行7～8: 中央領域
+  // 行9 (Y=220): [BtnA] Start [BtnB] Setting
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行1: 状態表示 "STATE: IDLE"
+  // ────────────────────────────────────────────────────────────────────
+  renderSimpleLine(UI::PosY::ROW1_START, "STATE: IDLE", WHITE);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行2: 温度表示 "Temp: 25.3 °C"
+  // ────────────────────────────────────────────────────────────────────
+  // アラーム状態によって色を変更
+  uint16_t tempColor;
+  if (G.M_HiAlarm) tempColor = RED;
+  else if (G.M_LoAlarm) tempColor = BLUE;
+  else tempColor = WHITE;
+  renderLabelValueLine(UI::PosY::ROW2_START,
+                       "Temp: ",
+                       G.D_FilteredPV,
+                       "C",
+                       tempColor);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行5: SD カード状態表示
+  // ────────────────────────────────────────────────────────────────────
+  char sdStatusLine[40];
+  uint16_t sdColor = WHITE;
+  
+  if (G.M_SDError) {
+    snprintf(sdStatusLine, sizeof(sdStatusLine), "SD Error: %s", SDManager::getLastError());
+    sdColor = RED;
+  } else if (G.M_SDReady) {
+    snprintf(sdStatusLine, sizeof(sdStatusLine), "SD Ready");
+    sdColor = GREEN;
+  } else {
+    snprintf(sdStatusLine, sizeof(sdStatusLine), "SD Not Ready");
+    sdColor = YELLOW;
+  }
+  renderSimpleLine(UI::PosY::ROW5_START, sdStatusLine, sdColor);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // ボタンガイド: 下端固定（Y=220）
+  // ────────────────────────────────────────────────────────────────────
+  renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Start  [BtnB] Setting", WHITE);
+}
+
 
 /**
  * @brief RUN 状態の描画 (計測実行中)
@@ -469,40 +774,76 @@ void renderIDLE() {
  * @see renderIDLE(), renderRESULT()
  */
 void renderRUN() {
-  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-  M5.Lcd.setTextColor(WHITE, BLACK);
+  // ════════════════════════════════════════════════════════════════════
+  // RUN 画面レイアウト（新設計: 行ベース）
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // 行1 (Y=0～12):   STATE: RUN
+  // 行2 (Y=12～32): Temp: 25.3 °C
+  // 行3 (Y=32～44): (reserved)
+  // 行4 (Y=44～64): Samples: 143
+  // 行5 (Y=64～76): SD: Writing...
+  // 行6 (Y=76～88): (space)
+  // 行9 (Y=220): [BtnA] Stop / Reset
   
-  // ── 状態行 ──
-  M5.Lcd.setCursor(0, UI::PosY::STATE_LABEL);
-  M5.Lcd.printf("STATE: RUN   \n");
-
-  // Phase 3: アラーム中は赤色に切り替え
-  if (G.M_HiAlarm || G.M_LoAlarm) {
-    M5.Lcd.setTextColor(RED, BLACK);
-  } else {
-    M5.Lcd.setTextColor(WHITE, BLACK);
+  // ────────────────────────────────────────────────────────────────────
+  // 行1: 状態表示 "STATE: RUN"
+  // ────────────────────────────────────────────────────────────────────
+  renderSimpleLine(UI::PosY::ROW1_START, "STATE: RUN", WHITE);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行2: リアルタイム温度表示
+  // ────────────────────────────────────────────────────────────────────
+  uint16_t tempColor;
+  if (G.M_HiAlarm) tempColor = RED;
+  else if (G.M_LoAlarm) tempColor = BLUE;
+  else tempColor = WHITE;
+  renderLabelValueLine(UI::PosY::ROW2_START,
+                       "Temp: ",
+                       G.D_FilteredPV,
+                       "C",
+                       tempColor);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行4: サンプル数表示
+  // ────────────────────────────────────────────────────────────────────
+  {
+    char sampleLine[40];
+    snprintf(sampleLine, sizeof(sampleLine), "Samples: %5ld", G.D_Count);
+    renderSimpleLine(UI::PosY::ROW4_START, sampleLine, WHITE);
   }
-
-  // ── 温度行 ──
-  M5.Lcd.setCursor(0, UI::PosY::TEMP_LABEL);
-  M5.Lcd.printf("Temp:  ");
-  M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE);
-  if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.printf("---.-  C\n");
-  } else {
-    M5.Lcd.printf("%5.1f  C\n", G.D_FilteredPV);
+  
+  // ────────────────────────────────────────────────────────────────────
+  // 行5: SD カ ード書き込み状況
+  // ────────────────────────────────────────────────────────────────────
+  {
+    char sdLine[40];
+    uint16_t sdColor = WHITE;
+    
+    if (G.M_SDError) {
+      snprintf(sdLine, sizeof(sdLine), "SD Error!");
+      sdColor = RED;
+    } else if (G.M_SDReady) {
+      if (G.M_SDWriteCounter == 0) {
+        snprintf(sdLine, sizeof(sdLine), "SD Writing...");
+        sdColor = GREEN;
+      } else {
+        snprintf(sdLine, sizeof(sdLine), "SD: %s", G.M_CurrentDataFile);
+        sdColor = WHITE;
+      }
+    } else {
+      snprintf(sdLine, sizeof(sdLine), "SD Not Ready");
+      sdColor = YELLOW;
+    }
+    renderSimpleLine(UI::PosY::ROW5_START, sdLine, sdColor);
   }
-
-  // ── サンプル数表示 ──
-  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
-  M5.Lcd.setTextColor(WHITE, BLACK);
-  M5.Lcd.setCursor(0, UI::PosY::GUIDE_BUTTON);
-  M5.Lcd.printf("Samples: %5ld  \n", G.D_Count);
-
-  // ── ボタンガイド ──
-  M5.Lcd.setCursor(0, UI::PosY::BUTTON_INFO);
-  M5.Lcd.print("[BtnA] Stop / Reset");
+  
+  // ────────────────────────────────────────────────────────────────────
+  // ボタンガイド: 下端固定
+  // ────────────────────────────────────────────────────────────────────
+  renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Stop / Reset", WHITE);
 }
+
 
 /**
  * @brief ALARM_SETTING 状態の描画 (アラーム閾値設定)
@@ -550,53 +891,73 @@ void renderRUN() {
  * @see EEPROM_SaveFromGlobal()
  */
 void renderALARM_SETTING() {
-  M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-  M5.Lcd.setTextColor(WHITE, BLACK);
+  // ════════════════════════════════════════════════════════════════════
+  // ALARM_SETTING 画面レイアウト（新設計: 行ベース）
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // ページ1（M_SettingIndex == 0）: HI_ALARM設定
+  //   行1 (Y=0～12):   STATE: HI_ALARM SETTING
+  //   行2 (Y=12～32): Current:
+  //   行3 (Y=32～44): 60.0 °C（値表示）
+  //   行4 (Y=44～64): (ガイド行 - 予約)
+  //   行9 (Y=220): [BtnB] +5C [BtnC] -5C / [BtnA] Next
+  //
+  // ページ2（M_SettingIndex == 1）: LO_ALARM設定
+  //   行1 (Y=0～12):   STATE: LO_ALARM SETTING
+  //   行2 (Y=12～32): Current:
+  //   行3 (Y=32～44): 40.0 °C（値表示）
+  //   行9 (Y=220): [BtnB] +5C [BtnC] -5C / [BtnA] Save & Exit
   
   if (G.M_SettingIndex == 0) {
-    // HI_ALARM 設定画面
-    M5.Lcd.setTextSize(UI::TEXTSIZE_TITLE);
-    M5.Lcd.setCursor(0, UI::PosY::TITLE);
-    M5.Lcd.printf("HI_ALARM SETTING\n\n");
+    // ────────────────────────────────────────────────────────────────────
+    // HI_ALARM あするには設定画面
+    // ────────────────────────────────────────────────────────────────────
     
-    M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_LABEL);
-    M5.Lcd.printf("Current:\n");
+    {
+      char stateText[30];
+      snprintf(stateText, sizeof(stateText), "STATE: HI_ALARM SETTING");
+      renderSimpleLine(UI::PosY::ROW1_START, stateText, WHITE);
+    }
     
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE);
-    M5.Lcd.printf("%6.1f C", G.D_HI_ALARM_CURRENT);
+    // 行2: "Current:"
+    renderSimpleLine(UI::PosY::ROW2_START, "Current:", WHITE);
     
-    // 調整ガイド
-    M5.Lcd.setCursor(0, UI::PosY::GUIDE_BUTTON);
-    M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
-    M5.Lcd.printf("[BtnB] +5C   [BtnC] -5C");
+    // 行3: 値を大きいフォントで表示（HIは赤で強調）
+    renderLabelValueLine(UI::PosY::ROW3_START,
+                         "",
+                         G.D_HI_ALARM_CURRENT,
+                         "C",
+                         RED);
+
+    // ボタンガイド（順序: A B C）
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Next   [BtnB] +5C   [BtnC] -5C", WHITE);
     
-    // ボタンガイド
-    M5.Lcd.setCursor(0, UI::PosY::BUTTON_INFO);
-    M5.Lcd.print("[BtnA] Next");
   } else {
+    // ────────────────────────────────────────────────────────────────────
     // LO_ALARM 設定画面
-    M5.Lcd.setTextSize(UI::TEXTSIZE_TITLE);
-    M5.Lcd.setCursor(0, UI::PosY::TITLE);
-    M5.Lcd.printf("LO_ALARM SETTING\n\n");
+    // ────────────────────────────────────────────────────────────────────
     
-    M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_LABEL);
-    M5.Lcd.printf("Current:\n");
+    {
+      char stateText[30];
+      snprintf(stateText, sizeof(stateText), "STATE: LO_ALARM SETTING");
+      renderSimpleLine(UI::PosY::ROW1_START, stateText, WHITE);
+    }
     
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE);
-    M5.Lcd.printf("%6.1f C", G.D_LO_ALARM_CURRENT);
+    // 行2: "Current:"
+    renderSimpleLine(UI::PosY::ROW2_START, "Current:", WHITE);
     
-    // 調整ガイド
-    M5.Lcd.setCursor(0, UI::PosY::GUIDE_BUTTON);
-    M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
-    M5.Lcd.printf("[BtnB] +5C   [BtnC] -5C");
-    
-    // ボタンガイド
-    M5.Lcd.setCursor(0, UI::PosY::BUTTON_INFO);
-    M5.Lcd.print("[BtnA] Save & Exit");
+    // 行3: 値を大きいフォントで表示（LOは青で強調）
+    renderLabelValueLine(UI::PosY::ROW3_START,
+               "",
+               G.D_LO_ALARM_CURRENT,
+               "C",
+               BLUE);
+
+    // ボタンガイド（順序: A B C）
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Save & Exit   [BtnB] +5C   [BtnC] -5C", WHITE);
   }
 }
+
 
 /**
  * @brief RESULT 状態の描画 (計測結果の統計表示、2ページング)
@@ -648,69 +1009,97 @@ void renderALARM_SETTING() {
  * @see UI_Task()
  */
 void renderRESULT() {
-  if (G.M_ResultPage == 0) {
-    // ========== Page 1: Temp + Avg =========
-    M5.Lcd.setTextSize(UI::TEXTSIZE_TITLE);
-    M5.Lcd.printf("RESULT (1/2)\n\n");
-    
-    // 温度表示
-    M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_LABEL);
-    M5.Lcd.printf("Temp:\n");
-    M5.Lcd.setCursor(0, UI::PosY::TEMP_VALUE);
-    if (isnan(G.D_FilteredPV)) {
-      M5.Lcd.printf("---.- C");
-    } else {
-      M5.Lcd.printf("%5.1f C", G.D_FilteredPV);
-    }
-    
-    // 平均値
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_AVG_LABEL);
-    M5.Lcd.printf("Avg:\n");
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_AVG_VALUE);
-    if (isnan(G.D_Average)) {
-      M5.Lcd.printf("---.-C");
-    } else {
-      M5.Lcd.printf("%5.1fC", G.D_Average);
-    }
-  } else {
-    // ========== Page 2: StdDev/Range + Max/Min ==========
-    M5.Lcd.setTextSize(UI::TEXTSIZE_TITLE);
-    M5.Lcd.printf("RESULT (2/2)\n");
-    
-    // 上段: StdDev と Range
-    M5.Lcd.setTextSize(UI::TEXTSIZE_VALUE);
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_TOP_ROW);
-    M5.Lcd.printf("StdDev:");
-    M5.Lcd.setCursor(UI::LayoutX::RIGHT_COL, UI::LayoutY::RESULT_TOP_ROW);
-    M5.Lcd.printf("Range:");
-    
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_MID_ROW);
-    M5.Lcd.printf("%5.1f", G.D_StdDev);
-    M5.Lcd.setCursor(UI::LayoutX::RIGHT_COL, UI::LayoutY::RESULT_MID_ROW);
-    M5.Lcd.printf("%5.1f", G.D_Range);
-    
-    // 下段: Max と Min
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_STAT_LABEL);
-    M5.Lcd.printf("Max:");
-    M5.Lcd.setCursor(UI::LayoutX::RIGHT_COL, UI::LayoutY::RESULT_STAT_LABEL);
-    M5.Lcd.printf("Min:");
-    
-    M5.Lcd.setCursor(UI::LayoutX::LEFT_COL, UI::LayoutY::RESULT_STAT_VALUE);
-    M5.Lcd.printf("%5.1f", G.D_Max);
-    M5.Lcd.setCursor(UI::LayoutX::RIGHT_COL, UI::LayoutY::RESULT_STAT_VALUE);
-    M5.Lcd.printf("%5.1f", G.D_Min);
-  }
+  // ════════════════════════════════════════════════════════════════════
+  // RESULT 画面レイアウト（新設計: 行ベース）
+  // ════════════════════════════════════════════════════════════════════
+  //
+  // ページ1（M_ResultPage == 0）:
+  //   行1 (Y=0～12):   STATE: RESULT (1/2)
+  //   行2 (Y=12～32): Temp: 27.5 °C
+  //   行3 (Y=32～44): (reserved)
+  //   行4 (Y=44～64): Average: 26.8 °C
+  //   行5 (Y=64～76): (space)
+  //   行9 (Y=220): [BtnA] Reset [BtnB] Next
+  //
+  // ページ2（M_ResultPage == 1）:
+  //   行1 (Y=0～12):   STATE: RESULT (2/2)
+  //   行2 (Y=12～32): StdDev: 0.8 °C
+  //   行3 (Y=32～44): Range: 10.0 °C
+  //   行4 (Y=44～64): Max: 30.5 °C / Min: 20.0 °C
+  //   行9 (Y=220): [BtnA] Reset [BtnB] Prev
   
-  // ボタンガイド（下端固定）
-  M5.Lcd.setCursor(0, UI::PosY::BUTTON_INFO);
-  M5.Lcd.setTextSize(UI::TEXTSIZE_GUIDE);
   if (G.M_ResultPage == 0) {
-    M5.Lcd.print("[BtnA] Reset   [BtnB] Next");
+    // ────────────────────────────────────────────────────────────────────
+    // ページ1: 温度 + 平均値
+    // ────────────────────────────────────────────────────────────────────
+    
+    {
+      char stateText[30];
+      snprintf(stateText, sizeof(stateText), "STATE: RESULT (1/2)");
+      renderSimpleLine(UI::PosY::ROW1_START, stateText, WHITE);
+    }
+    
+    // 行2: 現在温度
+    renderLabelValueLine(UI::PosY::ROW2_START,
+                         "Temp: ",
+                         G.D_FilteredPV,
+                         "C",
+                         WHITE);
+    
+    // 行4: 平均温度
+    renderLabelValueLine(UI::PosY::ROW4_START,
+                         "Avg: ",
+                         G.D_Average,
+                         "C",
+                         WHITE);
+    
+    // ボタンガイド
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Reset   [BtnB] Next", WHITE);
+    
   } else {
-    M5.Lcd.print("[BtnA] Reset   [BtnB] Prev");
+    // ────────────────────────────────────────────────────────────────────
+    // ページ2: 統計量（標準偏差、範囲、Max/Min）
+    // ────────────────────────────────────────────────────────────────────
+    
+    {
+      char stateText[30];
+      snprintf(stateText, sizeof(stateText), "STATE: RESULT (2/2)");
+      renderSimpleLine(UI::PosY::ROW1_START, stateText, WHITE);
+    }
+    
+    // 行2: 標準偏差
+    renderLabelValueLine(UI::PosY::ROW2_START,
+                         "StdDev: ",
+                         G.D_StdDev,
+                         "C",
+                         WHITE);
+    
+    // 行3: レンジ（大きな数値で表示）
+    renderLabelValueLine(UI::PosY::ROW3_START,
+                         "Range: ",
+                         G.D_Range,
+                         "C",
+                         WHITE);
+
+    // 行4: Max を大きく表示
+    renderLabelValueLine(UI::PosY::ROW4_START,
+               "Max: ",
+               G.D_Max,
+               "C",
+               WHITE);
+
+    // 行5: Min を次の行で大きく表示
+    renderLabelValueLine(UI::PosY::ROW5_START,
+               "Min: ",
+               G.D_Min,
+               "C",
+               WHITE);
+    
+    // ボタンガイド
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Reset   [BtnB] Prev", WHITE);
   }
 }
+
 
 // ========== UI Layer (200ms周期) ==================================================
 /**
@@ -747,38 +1136,210 @@ void renderRESULT() {
  * @see handleButtonA()
  */
 void UI_Task() {
+  // 部分更新モード: 前回描画値を保持して差分のみ更新
   static State prevState = State::IDLE;
-  static int   prevPage  = -1;  // ページ遷移検出用
+  static int   prevPage  = -1;  // RESULTページ遷移検出用
 
-  // 状態遷移時のみフル消去（残像防止）
-  if (G.M_CurrentState != prevState) {
+  // 前回の値スナップショット
+  static float prevTemp = NAN;
+  static long  prevSamples = -1;
+  static int   prevSDState = -1; // 0=NotReady,1=Ready,2=Error
+  static float prevAvg = NAN;
+  static float prevStd = NAN;
+  static float prevRange = NAN;
+  static float prevMax = NAN;
+  static float prevMin = NAN;
+  static bool  prevHiAlarm = false;
+  static bool  prevLoAlarm = false;
+
+  auto sdState = [](bool sdReady, bool sdError)->int {
+    if (sdError) return 2;
+    if (sdReady) return 1;
+    return 0;
+  };
+
+  // 状態遷移またはページ遷移時は画面全消去してスナップショットをリセット
+  bool doFullClear = false;
+  if (G.M_CurrentState != prevState) doFullClear = true;
+  if (G.M_CurrentState == State::RESULT && prevPage != G.M_ResultPage) doFullClear = true;
+
+  if (doFullClear) {
     M5.Lcd.fillScreen(BLACK);
     prevState = G.M_CurrentState;
-    prevPage = -1;  // 状態変更時はページリセット
-  }
-  
-  // RESULT状態でページが変わった場合もクリア
-  if (G.M_CurrentState == State::RESULT && prevPage != G.M_ResultPage) {
-    M5.Lcd.fillScreen(BLACK);
-    prevPage = G.M_ResultPage;
+    prevPage = (G.M_CurrentState == State::RESULT) ? G.M_ResultPage : -1;
+    // force re-render by resetting snapshots
+    prevTemp = NAN; prevSamples = -1; prevSDState = -1;
+    prevAvg = NAN; prevStd = NAN; prevRange = NAN; prevMax = NAN; prevMin = NAN;
+    prevHiAlarm = prevLoAlarm = false;
   }
 
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextColor(WHITE, BLACK);
-  
-  // ────── 状態毎の描画処理分岐 ──────
+  // 小さい差分判定用
+  const float EPS_F = 0.05f;
+
+  // 分岐して部分更新
   if (G.M_CurrentState == State::RESULT) {
-    // RESULT画面はページング対応
-    renderRESULT();
+    // ページ単位で扱う（ページ変更時は既に全消去済み）
+    if (G.M_ResultPage == 0) {
+      // 行1: STATE
+      renderSimpleLine(UI::PosY::ROW1_START, "STATE: RESULT (1/2)", WHITE);
+
+      // 行2: 現在温度（更新判定）
+      bool tempChanged = false;
+      if ((isnan(prevTemp) && !isnan(G.D_FilteredPV)) || (!isnan(prevTemp) && !isnan(G.D_FilteredPV) && fabs(prevTemp - G.D_FilteredPV) > EPS_F) || (isnan(G.D_FilteredPV) && !isnan(prevTemp))) tempChanged = true;
+      if (tempChanged) {
+        clearLine(UI::PosY::ROW2_START, UI::PosY::ROW2_END);
+        renderLabelValueLine(UI::PosY::ROW2_START, "Temp: ", G.D_FilteredPV, "C", WHITE);
+        prevTemp = G.D_FilteredPV;
+      }
+
+      // 行4: Avg
+      bool avgChanged = (isnan(prevAvg) && !isnan(G.D_Average)) || (!isnan(prevAvg) && !isnan(G.D_Average) && fabs(prevAvg - G.D_Average) > EPS_F);
+      if (avgChanged) {
+        clearLine(UI::PosY::ROW4_START, UI::PosY::ROW4_END);
+        renderLabelValueLine(UI::PosY::ROW4_START, "Avg: ", G.D_Average, "C", WHITE);
+        prevAvg = G.D_Average;
+      }
+
+      // ボタンガイドは静的
+      renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Reset   [BtnB] Next   [BtnC] -", WHITE);
+
+    } else {
+      // Page 1/2 (index 1): StdDev, Range, Max, Min
+      renderSimpleLine(UI::PosY::ROW1_START, "STATE: RESULT (2/2)", WHITE);
+
+      // StdDev
+      bool stdChanged = (isnan(prevStd) && !isnan(G.D_StdDev)) || (!isnan(prevStd) && !isnan(G.D_StdDev) && fabs(prevStd - G.D_StdDev) > EPS_F);
+      if (stdChanged) {
+        clearLine(UI::PosY::ROW2_START, UI::PosY::ROW2_END);
+        renderLabelValueLine(UI::PosY::ROW2_START, "StdDev: ", G.D_StdDev, "C", WHITE);
+        prevStd = G.D_StdDev;
+      }
+
+      // Range
+      bool rangeChanged = (isnan(prevRange) && !isnan(G.D_Range)) || (!isnan(prevRange) && !isnan(G.D_Range) && fabs(prevRange - G.D_Range) > EPS_F);
+      if (rangeChanged) {
+        clearLine(UI::PosY::ROW3_START, UI::PosY::ROW3_END);
+        renderLabelValueLine(UI::PosY::ROW3_START, "Range: ", G.D_Range, "C", WHITE);
+        prevRange = G.D_Range;
+      }
+
+      // Max
+      bool maxChanged = (isnan(prevMax) && !isnan(G.D_Max)) || (!isnan(prevMax) && !isnan(G.D_Max) && fabs(prevMax - G.D_Max) > EPS_F);
+      if (maxChanged) {
+        clearLine(UI::PosY::ROW4_START, UI::PosY::ROW4_END);
+        renderLabelValueLine(UI::PosY::ROW4_START, "Max: ", G.D_Max, "C", WHITE);
+        prevMax = G.D_Max;
+      }
+
+      // Min (ROW5)
+      bool minChanged = (isnan(prevMin) && !isnan(G.D_Min)) || (!isnan(prevMin) && !isnan(G.D_Min) && fabs(prevMin - G.D_Min) > EPS_F);
+      if (minChanged) {
+        clearLine(UI::PosY::ROW5_START, UI::PosY::ROW5_END);
+        renderLabelValueLine(UI::PosY::ROW5_START, "Min: ", G.D_Min, "C", WHITE);
+        prevMin = G.D_Min;
+      }
+
+      renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Reset   [BtnB] Prev   [BtnC] -", WHITE);
+    }
+
   } else if (G.M_CurrentState == State::ALARM_SETTING) {
-    // ALARM_SETTING画面
-    renderALARM_SETTING();
+    // ALARM_SETTING: full render on entry, otherwise update value only
+    renderSimpleLine(UI::PosY::ROW1_START, (G.M_SettingIndex == 0) ? "STATE: HI_ALARM SETTING" : "STATE: LO_ALARM SETTING", WHITE);
+    renderSimpleLine(UI::PosY::ROW2_START, "Current:", WHITE);
+
+    if (G.M_SettingIndex == 0) {
+      // HI
+      bool hiChanged = (isnan(prevMax) && !isnan(G.D_HI_ALARM_CURRENT)) || (!isnan(prevMax) && !isnan(G.D_HI_ALARM_CURRENT) && fabs(prevMax - G.D_HI_ALARM_CURRENT) > EPS_F);
+      if (hiChanged) {
+        clearLine(UI::PosY::ROW3_START, UI::PosY::ROW3_END);
+        renderLabelValueLine(UI::PosY::ROW3_START, "", G.D_HI_ALARM_CURRENT, "C", RED);
+        prevMax = G.D_HI_ALARM_CURRENT;
+      }
+      renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Next   [BtnB] +5C   [BtnC] -5C", WHITE);
+    } else {
+      // LO
+      bool loChanged = (isnan(prevMin) && !isnan(G.D_LO_ALARM_CURRENT)) || (!isnan(prevMin) && !isnan(G.D_LO_ALARM_CURRENT) && fabs(prevMin - G.D_LO_ALARM_CURRENT) > EPS_F);
+      if (loChanged) {
+        clearLine(UI::PosY::ROW3_START, UI::PosY::ROW3_END);
+        renderLabelValueLine(UI::PosY::ROW3_START, "", G.D_LO_ALARM_CURRENT, "C", BLUE);
+        prevMin = G.D_LO_ALARM_CURRENT;
+      }
+      renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Save & Exit   [BtnB] +5C   [BtnC] -5C", WHITE);
+    }
+
   } else if (G.M_CurrentState == State::RUN) {
-    // RUN画面
-    renderRUN();
+    // RUN: STATE, Temp, Samples, SD status
+    renderSimpleLine(UI::PosY::ROW1_START, "STATE: RUN", WHITE);
+
+    // Temp
+    bool tempChanged = false;
+    if ((isnan(prevTemp) && !isnan(G.D_FilteredPV)) || (!isnan(prevTemp) && !isnan(G.D_FilteredPV) && fabs(prevTemp - G.D_FilteredPV) > EPS_F) || (isnan(G.D_FilteredPV) && !isnan(prevTemp))) tempChanged = true;
+    if (tempChanged || prevHiAlarm != G.M_HiAlarm || prevLoAlarm != G.M_LoAlarm) {
+      clearLine(UI::PosY::ROW2_START, UI::PosY::ROW2_END);
+      uint16_t tempColor;
+      if (G.M_HiAlarm) tempColor = RED;
+      else if (G.M_LoAlarm) tempColor = BLUE;
+      else tempColor = WHITE;
+      renderLabelValueLine(UI::PosY::ROW2_START, "Temp: ", G.D_FilteredPV, "C", tempColor);
+      prevTemp = G.D_FilteredPV;
+      prevHiAlarm = G.M_HiAlarm;
+      prevLoAlarm = G.M_LoAlarm;
+    }
+
+    // Samples
+    if (G.D_Count != prevSamples) {
+      clearLine(UI::PosY::ROW4_START, UI::PosY::ROW4_END);
+      char sampleLine[40];
+      snprintf(sampleLine, sizeof(sampleLine), "Samples: %5ld", G.D_Count);
+      renderSimpleLine(UI::PosY::ROW4_START, sampleLine, WHITE);
+      prevSamples = G.D_Count;
+    }
+
+    // SD status
+    int curSD = sdState(G.M_SDReady, G.M_SDError);
+    if (curSD != prevSDState) {
+      // ROW6 に移動して ROW2/ROW4 と重ならないようにする
+      clearLine(UI::PosY::ROW6_START, UI::PosY::ROW6_END);
+      char sdLine[40]; uint16_t sdColor = WHITE;
+      if (G.M_SDError) { snprintf(sdLine, sizeof(sdLine), "SD Error: %s", SDManager::getLastError()); sdColor = RED; }
+      else if (G.M_SDReady) { snprintf(sdLine, sizeof(sdLine), "SD Ready"); sdColor = GREEN; }
+      else { snprintf(sdLine, sizeof(sdLine), "SD Not Ready"); sdColor = YELLOW; }
+      renderSimpleLine(UI::PosY::ROW6_START, sdLine, sdColor);
+      prevSDState = curSD;
+    }
+
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Stop / Reset   [BtnB] -   [BtnC] -", WHITE);
+
   } else {
-    // IDLE画面（デフォルト）
-    renderIDLE();
+    // IDLE
+    renderSimpleLine(UI::PosY::ROW1_START, "STATE: IDLE", WHITE);
+
+    bool tempChangedIdle = false;
+    if ((isnan(prevTemp) && !isnan(G.D_FilteredPV)) || (!isnan(prevTemp) && !isnan(G.D_FilteredPV) && fabs(prevTemp - G.D_FilteredPV) > EPS_F) || (isnan(G.D_FilteredPV) && !isnan(prevTemp))) tempChangedIdle = true;
+    if (tempChangedIdle || prevHiAlarm != G.M_HiAlarm || prevLoAlarm != G.M_LoAlarm) {
+      clearLine(UI::PosY::ROW2_START, UI::PosY::ROW2_END);
+      uint16_t tempColor;
+      if (G.M_HiAlarm) tempColor = RED;
+      else if (G.M_LoAlarm) tempColor = BLUE;
+      else tempColor = WHITE;
+      renderLabelValueLine(UI::PosY::ROW2_START, "Temp: ", G.D_FilteredPV, "C", tempColor);
+      prevTemp = G.D_FilteredPV;
+      prevHiAlarm = G.M_HiAlarm; prevLoAlarm = G.M_LoAlarm;
+    }
+
+    int curSD = sdState(G.M_SDReady, G.M_SDError);
+    if (curSD != prevSDState) {
+      // ROW6 に移動して上の行と重ならないようにする
+      clearLine(UI::PosY::ROW6_START, UI::PosY::ROW6_END);
+      char sdLine[40]; uint16_t sdColor = WHITE;
+      if (G.M_SDError) { snprintf(sdLine, sizeof(sdLine), "SD Error: %s", SDManager::getLastError()); sdColor = RED; }
+      else if (G.M_SDReady) { snprintf(sdLine, sizeof(sdLine), "SD Ready"); sdColor = GREEN; }
+      else { snprintf(sdLine, sizeof(sdLine), "SD Not Ready"); sdColor = YELLOW; }
+      renderSimpleLine(UI::PosY::ROW6_START, sdLine, sdColor);
+      prevSDState = curSD;
+    }
+
+    renderSimpleLine(UI::PosY::BUTTON_ROW, "[BtnA] Start   [BtnB] Setting   [BtnC] -", WHITE);
   }
 }
 
