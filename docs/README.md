@@ -5,6 +5,8 @@
 **最終更新**: 2026年2月26日  
 **ビルド状態**: ✅ SUCCESS (m5stack)  
 
+**CHANGELOG**: See [CHANGELOG.md](CHANGELOG.md) for recent fixes and refactor summaries.
+
 ---
 
 ## 🎯 ドキュメントを探す
@@ -228,6 +230,7 @@
 | 2026-02-26 | README.md / INDEX.md 最新化 |
 | 2026-02-26 | SESSION4_COMPLETION_REPORT.md: Stage 2-B 完了 |
 | 2026-02-26 | CODE_EXPLANATION.md: Stage 2-B セクション追加 |
+| 2026-02-27 | 単一チャネル化・SDカードリトライロジックをドキュメント反映 |
 
 ---
 
