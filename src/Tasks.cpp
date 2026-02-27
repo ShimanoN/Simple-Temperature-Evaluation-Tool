@@ -2,6 +2,27 @@
 #include "SDManager.h"      // Phase 4: SD カード操作
 #include <SPI.h>
 
+// センサー読み取りヘルパー
+static float readThermocouple() {
+  if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] about to begin thermocouple read");
+  const int maxRetry = 3;
+  float temp = NAN;
+  unsigned long start = 0, end = 0;
+  for (int attempt = 0; attempt < maxRetry; ++attempt) {
+    start = millis();
+    temp = thermocouple.readCelsius();
+    end = millis();
+    if (!isnan(temp) && fabs(temp) < 1000.0f) break;
+    delay(5);
+  }
+  if (UI::SHOW_DEBUG_LOGS) {
+    Serial.printf("[IO_Task] readCelsius returned in %lums\n", (end - start));
+    if (isnan(temp)) Serial.println("[IO_Task] readCelsius -> NAN");
+    else Serial.printf("[IO_Task] readCelsius -> %.3f\n", temp);
+  }
+  return temp;
+}
+
 // ── Forward Declarations （EEPROM 操作関数） ────────────────────────────────
 bool EEPROM_SaveFromGlobal();
 bool EEPROM_ValidateSettings(bool printDetail = true);
@@ -159,27 +180,8 @@ void IO_Task() {
   if (now - lastTcRead >= TC_READ_INTERVAL_MS) {
     lastTcRead = now;
 
-    if (UI::SHOW_DEBUG_LOGS) Serial.println("[IO_Task] about to begin thermocouple read");
-    // MAX31855 読み取り（Adafruit_BusIO が内部で CS / SPI トランザクションを管理）
-    // ※ SD カード CS (GPIO4=TFCARD_CS_PIN) と MAX31855 CS (GPIO5) は別ピンのため、
-    //   単一スレッド(協調スケジューラ)内では SPI 競合は発生しない。
-    float rawTemp = NAN;
-    unsigned long readStart = 0, readEnd = 0;
-    const int maxRetry = 3;
-    for (int attempt = 0; attempt < maxRetry; ++attempt) {
-      readStart = millis();
-      rawTemp = thermocouple.readCelsius();
-      readEnd = millis();
-      // 異常値判定: NANまたは絶対値1000超
-      if (!isnan(rawTemp) && fabs(rawTemp) < 1000.0f) break;
-      delay(5); // 少し待ってリトライ
-    }
-    if (UI::SHOW_DEBUG_LOGS) {
-      Serial.printf("[IO_Task] readCelsius returned in %lums\n", (readEnd - readStart));
-      if (isnan(rawTemp)) Serial.println("[IO_Task] readCelsius -> NAN");
-      else Serial.printf("[IO_Task] readCelsius -> %.3f\n", rawTemp);
-    }
-    if (!isnan(rawTemp) && fabs(rawTemp) < 1000.0f) {
+    float rawTemp = readThermocouple();
+    if (!isnan(rawTemp)) {
       G.D_RawPV = rawTemp;
       // 1次遅れフィルタ: y[n] = y[n-1]*(1-α) + x[n]*α
       // α=0.1 のとき約22サンプル(11秒)で新値の90%に収束
