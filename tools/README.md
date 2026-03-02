@@ -22,7 +22,7 @@ pip install python-pptx pyyaml
 # Create a spec file
 cat > presentation_spec.md << 'EOF'
 ---
-project: My Presentation
+title: "My Presentation"
 output: my_presentation.pptx
 ---
 
@@ -65,11 +65,16 @@ Human responsibility: author `presentation_spec.md` with YAML front matter + sli
 
 ```markdown
 ---
-project: Project Name
-hardware_mcu: M5Stack Basic V2.7
-hardware_sensor: MAX31855
-version: v1.0.0
+title: "Project Title"                 # required — shown on title slide
+subtitle: "Subtitle text"              # optional
+tagline: "Key value proposition"       # optional — orange accent
+meta: "Author / Org / Tech stack"      # optional — gray info line
+date: "2026 March"                      # optional
 output: output.pptx
+
+# Project-specific variables (accessible via {{key}} in any slide)
+product: "ProductName"
+price: "\u00a59,570"
 ---
 
 ## slide_01 | layout: title
@@ -77,12 +82,12 @@ output: output.pptx
 ## slide_02 | layout: bullet
 title: My content
 bullets:
-  - Item A
-  - Item B
+  - "{{product}} の主な特徴"
+  - "価格: {{price}}"
 ```
 
-**Single source of truth**: Define values (hardware names, costs, etc.) **only in YAML front matter**.  
-They automatically propagate to all slides. No hardcoding in slide sections.
+**Single source of truth**: Put values like product names or prices in front matter.  
+Use `{{key}}` in slide content — they are replaced automatically at render time.
 
 ### **Phase 3: Generate**
 
@@ -107,18 +112,42 @@ If changes needed:
 
 ```yaml
 ---
-project: "Project Title"
-subtitle: "Subtitle (hardware names, version, etc.)"
-hardware_mcu: "M5Stack Basic V2.7"        # single source of truth
-hardware_sensor: "MAX31855"
-tech_stack: "ESP32 / C++ (Arduino)"
-version: "v1.0.0 | 2026 March"
-output: "output_presentation.pptx"        # where to save
+# === Reserved fields (control title slide appearance) ===
+title: "Presentation Title"             # required
+subtitle: "Subtitle"                    # optional — white line below title
+tagline: "Orange accent line"           # optional
+meta: "Author / Org / Tech stack"       # optional — gray info line
+date: "2026 March"                      # optional
+output: "output_presentation.pptx"      # required
+
+# === Project-specific variables ===
+# Any field defined here is accessible via {{key}} in any slide.
+product: "M5Stack Basic V2.7"
+price: "\u00a59,570"
+author: "Your Name"
 ---
 ```
 
 All values defined here are accessible to all slides.  
-If hardware name changes, update ONLY the `hardware_mcu` field.
+If a product name changes, update it **once** in front matter — all slides update via `{{product}}`.
+
+### Template Variables: `{{key}}`
+
+Any `{{key}}` in slide content is replaced at render time with the front matter value.
+
+```markdown
+---
+product: M5Stack Basic V2.7    # ← define once
+---
+
+## slide_04 | layout: bullet
+title: "{{product}} の特徴"            # ← auto-replaced
+bullets:
+  - "{{product}} + MAX31855 構成"
+
+## slide_07 | layout: table
+title: "{{product}} ピン配置"          # ← auto-replaced
+```
 
 ### Slide Section Format
 
@@ -137,12 +166,21 @@ Everything after the header until the next slide is treated as YAML.
 
 ### 1. `layout: title`
 
-Generates a title slide from front matter.
+Builds the title slide from front matter fields. No params needed.
 
-**No params needed** — uses `project`, `hardware_mcu`, `hardware_sensor`, `tech_stack`, `version` from front matter.
+| Front matter key | Appears as |
+|-----------------|------------|
+| `title` | Large white title (required) |
+| `subtitle` | White subtitle line |
+| `tagline` | Orange accent line |
+| `meta` | Gray info line (author / org / stack) |
+| `date` | White date/version at bottom |
+
+All fields can be overridden per-slide in params.
 
 ```markdown
 ## slide_01 | layout: title
+# No params needed — reads from front matter automatically
 ```
 
 ---
@@ -217,33 +255,34 @@ Never manually adjust positions.
 
 ---
 
-### 6. `layout: cost_comparison`
+### 6. `layout: dual_table`
 
-Dual-table layout: component cost (left) + market comparison (right) + highlight + checklist.
+Two tables side-by-side with optional highlight box and checklist.  
+**Fully configurable** — all labels and highlight rows are set in the spec.
 
 ```markdown
-## slide_06 | layout: cost_comparison
-title: Cost Advantage
+## slide_06 | layout: dual_table
+title: Cost Comparison
 section: Section 1  Project Overview
-cost_rows:
-  - [Component, Source, Price]
-  - [M5Stack Basic V2.7, Amazon, "¥7,990"]
-  - [MAX31855, Akizuki Electronics, "¥980"]
-  - [Total, —, "¥9,570"]
-market_rows:
-  - [Category, Product, Price Range]
-  - [DIY Tool, M5Stack + MAX31855, "¥9,570"]
-  - [Standard, USB Data Logger, "¥30,000~"]
-  - [Professional, Industrial Logger, "¥100,000~"]
-highlight: "1/3.1 the price of commercial products"
-sub_highlight: "¥9,570 vs ¥30,000~ → saves ¥20,000+"
-checklist:
-  - "✓ SD auto-log  ✓ LCD real-time  ✓ Alarm function"
-  - "✓ Standalone  ✓ EEPROM config  ✓ Statistics"
+left_label: "Left table heading"           # arbitrary text
+left_rows:
+  - [Header1, Header2, Header3]             # ← first row = header
+  - [Data, Data, Data]
+left_col_widths: [2.9, 1.5, 1.4]          # optional — auto-split if omitted
+left_highlight_last: true                   # optional — highlight total row
+right_label: "Right table heading"         # arbitrary text
+right_rows:
+  - [Header1, Header2, Header3]
+  - [Data, Data, Data]
+right_col_widths: [2.8, 2.18, 1.5]        # optional — auto-split if omitted
+right_highlight_row: 1                     # optional — 1=first data row, 0=header
+highlight: "Summary box heading"           # optional — navy box
+sub_highlight: "Sub text"                  # optional — orange inside box
+checklist:                                  # optional — gray box
+  - "✓ Feature A  ✓ Feature B  ✓ Feature C"
 ```
 
-Left and right tables can have different row counts.  
-Highlight box and checklist automatically position below the **taller table**.
+Use cases: cost ÷ price comparison, before/after, option A vs B, self vs competitors.
 
 ---
 
@@ -327,20 +366,22 @@ bullets:
 
 **Fix**: Check layout name spelling. See "Built-in Layouts" section.
 
-### Hardware name changed but PPTX still has old value
+### Value changed in front matter but PPTX shows old value
 
-**Cause**: Hardcoded in slide section instead of using front matter.
+**Cause**: The value is hardcoded in the slide section instead of using `{{key}}` substitution.
 
 ```markdown
 ---
-hardware_mcu: M5Stack Basic V2.7   # ← Change here
+product: "New Product Name"   # ← Change here
 ---
 
-## slide_01 | layout: title
-# No need to edit below — it reads from front matter automatically
+## slide_04 | layout: bullet
+bullets:
+  - "{{product}} の特徴"        # ← Auto-updated via {{key}}
+  # NOT: "Old Product Name の特徴"  # ← Hardcoded — won't update!
 ```
 
-**Fix**: Define in YAML front matter. Reference via front matter, not hardcoded text.
+**Fix**: Move the value to front matter, reference it with `{{key}}` in slides.
 
 ### Table overlaps warning/note box below
 

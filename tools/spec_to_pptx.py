@@ -3,18 +3,29 @@
 """
 spec_to_pptx.py
 ---------------
-Reads a presentation_spec.md file and generates a PowerPoint file.
+Domain-agnostic Markdown spec → PowerPoint converter.
+Works for any presentation type: business, technical, research, recruitment, etc.
 
 Usage:
-    python tools/spec_to_pptx.py docs/<project>/presentation_spec.md
+    python tools/spec_to_pptx.py path/to/presentation_spec.md
 
 Spec format: see tools/PPTX_CREATION_WORKFLOW.md for full documentation.
 
 Design:
-    - parse_spec()      : Parses YAML front matter + slide sections from .md
-    - render_*()        : One renderer per layout type
-    - safe_y_after_table(): Prevents overlap bugs by calculating table bottom y
-    - main()            : Orchestrates parse → render → save
+    - parse_spec()           : Parses YAML front matter + slide sections from .md
+    - _interpolate_params()  : Replaces {{key}} placeholders with front matter values
+    - render_*()             : One renderer per layout type (7 layouts)
+    - safe_y_after_table()   : Prevents overlap bugs by calculating table bottom y
+    - main()                 : Orchestrates parse → interpolate → render → save
+
+Front matter reserved keys:
+    title    : Main title (required)
+    subtitle : Subtitle line on title slide
+    tagline  : Orange accent line on title slide
+    meta     : Gray info line (author, org, tech stack, etc.)
+    date     : Date / version shown on title slide
+    output   : Output .pptx file path (required)
+   (any other key is accessible via {{key}} in slide content)
 """
 
 import os
@@ -176,6 +187,11 @@ def footer_bar(slide, page_num: int, project_title: str = ""):
                 size=Pt(11), color=C_WHITE, font=FONT_EN, align=PP_ALIGN.RIGHT)
 
 
+def _ptitle(config: dict) -> str:
+    """Return the footer display title: 'title' field takes priority over 'project'."""
+    return config.get('title') or config.get('project', '')
+
+
 def make_table(slide, x, y, w, rows: list, col_widths: list,
                row_height=Inches(0.40), header_fill=C_NAVY,
                header_text_color=C_WHITE, alt_fill=C_GRAY_LT):
@@ -221,6 +237,48 @@ def color_row(tbl, row_index, fill, text_color, bold=False):
                 run.font.color.rgb = text_color
                 if bold:
                     run.font.bold = True
+
+
+# ===========================================================================
+# ▼ TEMPLATE VARIABLE INTERPOLATION
+# ===========================================================================
+
+def _interpolate(value: str, config: dict) -> str:
+    """
+    Replace {{key}} placeholders in a string with values from config.
+    Unknown keys are left as-is (e.g. {{unknown}} stays {{unknown}}).
+    """
+    def _replace(m):
+        key = m.group(1).strip()
+        return str(config.get(key, f'{{{{{key}}}}}'))
+    return re.sub(r'\{\{(\w+)\}\}', _replace, value)
+
+
+def _interpolate_params(params: dict, config: dict) -> dict:
+    """
+    Walk params dict recursively and apply {{key}} substitution.
+    Handles string values, lists of strings, and lists of lists (table rows).
+    """
+    result = {}
+    for k, v in params.items():
+        if isinstance(v, str):
+            result[k] = _interpolate(v, config)
+        elif isinstance(v, list):
+            processed = []
+            for item in v:
+                if isinstance(item, str):
+                    processed.append(_interpolate(item, config))
+                elif isinstance(item, list):
+                    processed.append([
+                        _interpolate(cell, config) if isinstance(cell, str) else cell
+                        for cell in item
+                    ])
+                else:
+                    processed.append(item)
+            result[k] = processed
+        else:
+            result[k] = v
+    return result
 
 
 # ===========================================================================
@@ -276,26 +334,27 @@ def parse_spec(filepath: str):
 def render_title(prs, s, config: dict, params: dict, page_num: int):
     """
     layout: title
-    Uses config fields: project, hardware_mcu, hardware_sensor,
-                        tech_stack, version
+    Builds the title slide from front matter fields.
+    All fields can also be overridden per-slide in params.
+
+    Front matter fields used:
+        title    → large main title                  (required)
+        subtitle → white subtitle below title        (optional)
+        tagline  → orange accent line                (optional)
+        meta     → gray info line (author/org/stack) (optional)
+        date     → white date/version at bottom      (optional)
     """
     _set_bg(s, C_NAVY)
 
-    project   = config.get('project', 'Presentation Title')
-    hw_mcu    = config.get('hardware_mcu', '')
-    hw_sensor = config.get('hardware_sensor', '')
-    tech      = config.get('tech_stack', '')
-    version   = config.get('version', '')
+    title    = params.get('title')    or config.get('title',    'Presentation Title')
+    subtitle = params.get('subtitle') or config.get('subtitle', '')
+    tagline  = params.get('tagline')  or config.get('tagline',  '')
+    meta     = params.get('meta')     or config.get('meta',     '')
+    date     = params.get('date')     or config.get('date',     '')
 
-    # Build subtitle from config — single source of truth
-    # Priority: explicit 'subtitle' field > auto-build from hw_mcu × hw_sensor
-    subtitle = config.get('subtitle', '')
-    if not subtitle and hw_mcu and hw_sensor:
-        subtitle = f"{hw_mcu} × {hw_sensor}"
-
-    add_textbox(s, project,
+    add_textbox(s, title,
                 Inches(1.0), Inches(1.8), Inches(11.3), Inches(0.9),
-                size=Pt(36), color=C_WHITE, bold=True, font=FONT_EN,
+                size=Pt(36), color=C_WHITE, bold=True, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
 
     if subtitle:
@@ -306,20 +365,20 @@ def render_title(prs, s, config: dict, params: dict, page_num: int):
 
     add_rect(s, Inches(1.0), Inches(3.62), Inches(11.3), Inches(0.04), C_ORANGE)
 
-    features = params.get('features', config.get('features', ''))
-    add_textbox(s, features,
-                Inches(1.0), Inches(3.8), Inches(11.3), Inches(0.45),
-                size=Pt(15), color=C_ORANGE, font=FONT_JP,
-                align=PP_ALIGN.CENTER)
-
-    if tech:
-        add_textbox(s, tech,
-                    Inches(1.0), Inches(4.3), Inches(11.3), Inches(0.45),
-                    size=Pt(14), color=C_GRAY_MID, font=FONT_EN,
+    if tagline:
+        add_textbox(s, tagline,
+                    Inches(1.0), Inches(3.8), Inches(11.3), Inches(0.45),
+                    size=Pt(15), color=C_ORANGE, font=FONT_JP,
                     align=PP_ALIGN.CENTER)
 
-    if version:
-        add_textbox(s, version,
+    if meta:
+        add_textbox(s, meta,
+                    Inches(1.0), Inches(4.3), Inches(11.3), Inches(0.45),
+                    size=Pt(14), color=C_GRAY_MID, font=FONT_JP,
+                    align=PP_ALIGN.CENTER)
+
+    if date:
+        add_textbox(s, date,
                     Inches(1.0), Inches(5.2), Inches(11.3), Inches(0.4),
                     size=Pt(13), color=C_WHITE, font=FONT_JP,
                     align=PP_ALIGN.CENTER)
@@ -334,9 +393,7 @@ def render_toc(prs, s, config: dict, params: dict, page_num: int):
     items = params.get('items', [])
 
     header_bar(s, title, "")
-    footer_bar(s, page_num, config.get('project', ''))
-
-    # Render items as numbered list in a navy left-bordered style
+    footer_bar(s, page_num, _ptitle(config))
     for i, item in enumerate(items):
         y = 1.35 + i * 0.62
         # Left accent bar
@@ -375,7 +432,7 @@ def render_section_divider(prs, s, config: dict, params: dict, page_num: int):
                     size=Pt(15), color=C_GRAY_MID, font=FONT_JP,
                     align=PP_ALIGN.CENTER)
 
-    footer_bar(s, page_num, config.get('project', ''))
+    footer_bar(s, page_num, _ptitle(config))
 
 
 def render_bullet(prs, s, config: dict, params: dict, page_num: int):
@@ -390,7 +447,7 @@ def render_bullet(prs, s, config: dict, params: dict, page_num: int):
     sub_text  = params.get('sub_text', '')
 
     header_bar(s, title, section)
-    footer_bar(s, page_num, config.get('project', ''))
+    footer_bar(s, page_num, _ptitle(config))
 
     # Bullet items
     bullet_start_y = 1.2
@@ -438,7 +495,7 @@ def render_table(prs, s, config: dict, params: dict, page_num: int):
     note         = params.get('note', '')
 
     header_bar(s, title, section)
-    footer_bar(s, page_num, config.get('project', ''))
+    footer_bar(s, page_num, _ptitle(config))
 
     # Subtitle if present
     subtitle = params.get('subtitle', '')
@@ -483,67 +540,99 @@ def render_table(prs, s, config: dict, params: dict, page_num: int):
                     size=Pt(12), color=C_DARK_TXT, font=FONT_JP)
 
 
-def render_cost_comparison(prs, s, config: dict, params: dict, page_num: int):
+def render_dual_table(prs, s, config: dict, params: dict, page_num: int):
     """
-    layout: cost_comparison
-    params: title, section, cost_rows, market_rows,
-            highlight, sub_highlight, checklist (optional)
+    layout: dual_table
+    Side-by-side two-table layout with optional highlight box and checklist.
+    Fully configurable labels and highlight rows — domain-agnostic.
+
+    params:
+        title              : slide title (header bar)
+        section            : section label (header bar, optional)
+        left_label         : label above left table
+        left_rows          : list of rows (first row = header)
+        left_col_widths    : list of floats in inches (default: auto-split 5.8")
+        left_highlight_last: true → highlight last row (e.g. total row) in orange
+        right_label        : label above right table
+        right_rows         : list of rows (first row = header)
+        right_col_widths   : list of floats in inches (default: auto-split 6.48")
+        right_highlight_row: int → highlight this row index in navy (1-based, 0=header)
+        highlight          : text for navy summary box (optional)
+        sub_highlight      : orange subtext in summary box (optional)
+        checklist          : list of strings for gray box below (optional)
 
     Layout (y-axis, auto-calculated):
       y=1.10  Left/right table labels
-      y=1.50  Two tables (left: cost breakdown, right: market comparison)
-      y=safe  Navy highlight box
-              Orange sub_highlight text
-              Gray checklist box
+      y=1.50  Two tables
+      y=safe  Navy highlight box → orange sub_highlight → gray checklist
     """
-    title         = params.get('title', 'コストメリット')
-    section       = params.get('section', '')
-    cost_rows     = params.get('cost_rows', [])
-    market_rows   = params.get('market_rows', [])
-    highlight     = params.get('highlight', '')
-    sub_highlight = params.get('sub_highlight', '')
-    checklist     = params.get('checklist', [])
+    title               = params.get('title', '')
+    section             = params.get('section', '')
+    left_label          = params.get('left_label', '')
+    left_rows           = params.get('left_rows', [])
+    left_col_widths_f   = params.get('left_col_widths', [])
+    left_highlight_last = params.get('left_highlight_last', False)
+    right_label         = params.get('right_label', '')
+    right_rows          = params.get('right_rows', [])
+    right_col_widths_f  = params.get('right_col_widths', [])
+    right_highlight_row = params.get('right_highlight_row', None)
+    highlight           = params.get('highlight', '')
+    sub_highlight       = params.get('sub_highlight', '')
+    checklist           = params.get('checklist', [])
 
     header_bar(s, title, section)
-    footer_bar(s, page_num, config.get('project', ''))
+    footer_bar(s, page_num, _ptitle(config))
 
-    # --- Left table (cost breakdown) ---
-    add_textbox(s, "本ツール 品目別コスト",
-                Inches(0.35), Inches(1.1), Inches(5.8), Inches(0.35),
-                size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
-
-    LEFT_ROW_H  = 0.40
+    LEFT_W      = 5.8
+    RIGHT_W     = 6.48
+    LEFT_X      = 0.35
+    RIGHT_X     = 6.5
+    ROW_H       = 0.40
     TABLE_START = 1.50
-    cost_col_w  = [Inches(2.9), Inches(1.5), Inches(1.4)]
-    tbl_left = make_table(s, Inches(0.35), Inches(TABLE_START), Inches(5.8),
-                          cost_rows, cost_col_w, row_height=Inches(LEFT_ROW_H))
-    # Highlight total row (last data row)
-    if len(cost_rows) > 1:
-        color_row(tbl_left, len(cost_rows) - 1, C_ORANGE, C_WHITE, bold=True)
 
-    # --- Right table (market comparison) ---
-    add_textbox(s, "市販温度ロガーとの価格比較",
-                Inches(6.5), Inches(1.1), Inches(6.48), Inches(0.35),
-                size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
+    # --- Left table ---
+    if left_label:
+        add_textbox(s, left_label,
+                    Inches(LEFT_X), Inches(1.1), Inches(LEFT_W), Inches(0.35),
+                    size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
+    if left_rows:
+        num_cols = len(left_rows[0])
+        if left_col_widths_f:
+            lcw = [Inches(w) for w in left_col_widths_f]
+        else:
+            unit = LEFT_W / num_cols
+            lcw = [Inches(unit)] * num_cols
+        tbl_left = make_table(s, Inches(LEFT_X), Inches(TABLE_START), Inches(LEFT_W),
+                              left_rows, lcw, row_height=Inches(ROW_H))
+        if left_highlight_last and len(left_rows) > 1:
+            color_row(tbl_left, len(left_rows) - 1, C_ORANGE, C_WHITE, bold=True)
 
-    RIGHT_ROW_H = 0.40
-    mkt_col_w   = [Inches(2.8), Inches(2.18), Inches(1.5)]
-    tbl_right = make_table(s, Inches(6.5), Inches(TABLE_START), Inches(6.48),
-                           market_rows, mkt_col_w, row_height=Inches(RIGHT_ROW_H))
-    # Highlight "own tool" row (row 1)
-    if len(market_rows) > 1:
-        color_row(tbl_right, 1, C_NAVY, C_WHITE, bold=True)
+    # --- Right table ---
+    if right_label:
+        add_textbox(s, right_label,
+                    Inches(RIGHT_X), Inches(1.1), Inches(RIGHT_W), Inches(0.35),
+                    size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
+    if right_rows:
+        num_cols = len(right_rows[0])
+        if right_col_widths_f:
+            rcw = [Inches(w) for w in right_col_widths_f]
+        else:
+            unit = RIGHT_W / num_cols
+            rcw = [Inches(unit)] * num_cols
+        tbl_right = make_table(s, Inches(RIGHT_X), Inches(TABLE_START), Inches(RIGHT_W),
+                               right_rows, rcw, row_height=Inches(ROW_H))
+        if right_highlight_row is not None and len(right_rows) > right_highlight_row:
+            color_row(tbl_right, right_highlight_row, C_NAVY, C_WHITE, bold=True)
 
-    # --- Calculate safe y below the TALLER of the two tables ---
-    left_end  = calc_table_bottom(TABLE_START, len(cost_rows),  LEFT_ROW_H)
-    right_end = calc_table_bottom(TABLE_START, len(market_rows), RIGHT_ROW_H)
+    # --- Safe y below the taller table ---
+    left_end  = calc_table_bottom(TABLE_START, len(left_rows),  ROW_H)
+    right_end = calc_table_bottom(TABLE_START, len(right_rows), ROW_H)
     box_y = max(left_end, right_end) + 0.12
 
     # --- Navy highlight box ---
-    # Height budget: title line ~0.45" + sub line ~0.38" + padding = 1.0"
     if highlight:
-        hl_h = 1.0 if not sub_highlight else 1.0
-        clamp_to_content(box_y, hl_h)
+        hl_h = 1.0
+        box_y = clamp_to_content(box_y, hl_h)
         add_rect(s, Inches(0.35), Inches(box_y), Inches(12.6), Inches(hl_h), C_NAVY)
         add_textbox(s, highlight,
                     Inches(0.5), Inches(box_y + 0.07), Inches(12.3), Inches(0.45),
@@ -559,7 +648,7 @@ def render_cost_comparison(prs, s, config: dict, params: dict, page_num: int):
     # --- Gray checklist box ---
     if checklist:
         list_h = 0.2 + len(checklist) * 0.35
-        clamp_to_content(box_y, list_h)
+        box_y = clamp_to_content(box_y, list_h)
         add_rect(s, Inches(0.35), Inches(box_y), Inches(12.6), Inches(list_h), C_GRAY_LT)
         add_multiline_textbox(s, checklist,
                               Inches(0.55), Inches(box_y + 0.07),
@@ -583,7 +672,7 @@ def render_two_column(prs, s, config: dict, params: dict, page_num: int):
     note        = params.get('note', '')
 
     header_bar(s, title, section)
-    footer_bar(s, page_num, config.get('project', ''))
+    footer_bar(s, page_num, _ptitle(config))
 
     # Divider line down the center
     add_rect(s, Inches(6.62), Inches(1.15), Inches(0.04), Inches(5.55), C_GRAY_MID)
@@ -624,7 +713,7 @@ LAYOUT_RENDERERS = {
     'section_divider':  render_section_divider,
     'bullet':           render_bullet,
     'table':            render_table,
-    'cost_comparison':  render_cost_comparison,
+    'dual_table':       render_dual_table,
     'two_column':       render_two_column,
 }
 
@@ -650,7 +739,8 @@ def main():
         print("ERROR: No slides found in spec. Check ## slide_NN | layout: headers.")
         sys.exit(1)
 
-    print(f"   Project    : {config.get('project', '(unnamed)')}")
+    _display_title = config.get('title') or config.get('project', '(unnamed)')
+    print(f"   Title      : {_display_title}")
     print(f"   Slide count: {len(slides)}")
     print()
 
@@ -660,7 +750,8 @@ def main():
 
     for i, slide_def in enumerate(slides, 1):
         layout = slide_def['layout']
-        params = slide_def['params']
+        # Apply {{key}} template variable substitution before rendering
+        params = _interpolate_params(slide_def['params'], config)
         renderer = LAYOUT_RENDERERS.get(layout)
 
         if renderer is None:
