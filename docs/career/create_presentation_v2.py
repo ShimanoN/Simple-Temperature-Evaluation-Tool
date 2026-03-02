@@ -294,7 +294,7 @@ def slide01(prs):
                 Inches(1.0), Inches(1.8), Inches(11.3), Inches(0.9),
                 size=Pt(36), color=C_WHITE, bold=True, font=FONT_EN,
                 align=PP_ALIGN.CENTER)
-    add_textbox(s, "M5Stack Core2 × MAX31855  熱電対温度計測システム",
+    add_textbox(s, "M5Stack Basic V2.7 × MAX31855  熱電対温度計測システム",
                 Inches(1.0), Inches(2.9), Inches(11.3), Inches(0.55),
                 size=Pt(18), color=C_WHITE, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
@@ -448,30 +448,30 @@ def slide04(prs):
     color_row(tbl_mkt, 1, C_NAVY, C_WHITE, bold=True)
 
     # コスト削減強調ボックス
-    add_rect(s, Inches(0.35), Inches(3.0), Inches(12.6), Inches(1.4), C_NAVY)
+    add_rect(s, Inches(0.35), Inches(4.35), Inches(12.6), Inches(1.4), C_NAVY)
     add_textbox(s,
                 "標準製品の 1/3.1 の価格で同等機能を実現",
-                Inches(0.5), Inches(3.1), Inches(12.3), Inches(0.6),
+                Inches(0.5), Inches(4.45), Inches(12.3), Inches(0.6),
                 size=Pt(22), color=C_WHITE, bold=True, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
     add_textbox(s,
                 "本ツール ¥9,570 vs 標準ロガー ¥30,000〜 → 最大 ¥20,000 以上削減",
-                Inches(0.5), Inches(3.8), Inches(12.3), Inches(0.5),
+                Inches(0.5), Inches(5.15), Inches(12.3), Inches(0.5),
                 size=Pt(15), color=C_ORANGE, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
     add_textbox(s,
                 "（SD 自動記録 ・ LCD リアルタイム表示 ・ 上下限アラーム機能 完全実装）",
-                Inches(0.5), Inches(4.35), Inches(12.3), Inches(0.35),
+                Inches(0.5), Inches(5.70), Inches(12.3), Inches(0.35),
                 size=Pt(12), color=C_WHITE, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
 
     # 機能チェックリスト
-    add_rect(s, Inches(0.35), Inches(4.55), Inches(12.6), Inches(1.0), C_GRAY_LT)
+    add_rect(s, Inches(0.35), Inches(5.85), Inches(12.6), Inches(1.0), C_GRAY_LT)
     add_multiline_textbox(s, [
         "✓ SD 自動記録  ✓ LCD リアルタイム表示  ✓ 上下限アラーム（ビープ音）",
         "✓ スタンドアロン動作  ✓ EEPROM 設定保存  ✓ 統計解析（平均・σ・Max/Min）",
     ],
-        Inches(0.55), Inches(4.62), Inches(12.2), Inches(0.82),
+        Inches(0.55), Inches(5.92), Inches(12.2), Inches(0.82),
         size=Pt(12), color=C_DARK_TXT, font=FONT_JP,
         align=PP_ALIGN.CENTER)
 
@@ -603,21 +603,21 @@ def slide07(prs):
                row_height=Inches(0.45))
 
     # 警告ボックス
-    add_rect(s, Inches(0.35), Inches(4.0), Inches(12.6), Inches(1.05),
+    add_rect(s, Inches(0.35), Inches(4.3), Inches(12.6), Inches(1.05),
              C_RED_LT, C_RED, line_width=1.5)
     add_textbox(s,
                 "⚠ SD カードの CS は GPIO4 (TFCARD_CS_PIN) を明示指定すること",
-                Inches(0.55), Inches(4.05), Inches(12.2), Inches(0.4),
+                Inches(0.55), Inches(4.35), Inches(12.2), Inches(0.4),
                 size=Pt(13), color=C_RED, bold=True, font=FONT_JP)
     add_textbox(s,
                 "SD.begin(TFCARD_CS_PIN, SPI, 40000000);  // ← GPIO5 デフォルトでは MAX31855 と衝突！",
-                Inches(0.55), Inches(4.48), Inches(12.2), Inches(0.45),
+                Inches(0.55), Inches(4.78), Inches(12.2), Inches(0.45),
                 size=Pt(12), color=C_DARK_TXT, font=FONT_CODE)
 
-    add_rect(s, CX, Inches(5.15), Inches(12.6), Inches(0.7), C_GRAY_LT)
+    add_rect(s, CX, Inches(5.45), Inches(12.6), Inches(0.7), C_GRAY_LT)
     add_textbox(s,
                 "EEPROM: ESP32 内蔵フラッシュを仮想 EEPROM として使用（外部配線なし）",
-                Inches(0.55), Inches(5.22), Inches(12.2), Inches(0.55),
+                Inches(0.55), Inches(5.52), Inches(12.2), Inches(0.55),
                 size=Pt(12), color=C_DARK_TXT, font=FONT_JP)
 
 
