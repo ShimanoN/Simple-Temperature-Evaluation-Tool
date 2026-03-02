@@ -469,15 +469,15 @@ def slide_05_features(prs):
 
     features = [
         ("① リアルタイム温度計測",
-         "K型熱電対 + MAX31855 使用\n計測範囲：−200〜1350℃  精度：±1℃\n10ms周期でセンサ読取、LPFでノイズ除去"),
+         "K型熱電対 + MAX31855 使用\n計測範囲：−200〜1350℃  精度：±1℃\n500ms間隔でセンサ読取、LPF（α=0.1）でノイズ除去"),
         ("② 統計値の自動計算・表示",
-         "計測中に 平均・標準偏差・最大・最小 を自動更新\nWelford法（逐次更新）でRAMを消費せず処理\n計測終了時に最終統計値を画面表示"),
+         "計測中に 平均・標準偏差・最大・最小 を自動更新\nWelford法（逐次更新）でRAMを消費せず処理\n計測終了時に最終統計値をページ表示"),
         ("③ CSVファイル自動保存",
-         "MicroSDカードに DATA_0001.csv 形式で自動記録\nPC（Excel）で直接読み込み・グラフ化が可能\n手入力工数をゼロに"),
+         "MicroSDカードに DATA_0000.csv 形式で自動記録\n10列フォーマット（経過時間・温度・統計・アラームフラグ等）\n計測ごとに連番で自動採番"),
         ("④ アラーム機能",
-         "上限・下限温度を EEPROM に設定・保存\n超過した瞬間に画面でリアルタイム通知\n設定値は電源OFF後も保持"),
-        ("⑤ ワンボタン操作",
-         "ボタン1回押し：計測開始\nボタンもう1回押し：計測終了・統計表示\n手順書不要、誰でも操作可能"),
+         "上限（HI）・下限（LO）温度を EEPROM に設定・保存\n超過の瞬間にビープ音 + 画面でリアルタイム通知\nヒステリシス（±5℃）でチラつき防止"),
+        ("⑤ 3ボタン操作",
+         "BtnA：計測開始/終了/画面遷移\nBtnB：アラーム設定モード進入/設定値+5℃\nBtnC：設定値 −5℃"),
     ]
 
     for i, (title, desc) in enumerate(features):
@@ -523,166 +523,196 @@ def slide_06_manual_step1(prs):
                 font_size=22, bold=True, color=C_NAVY)
 
     rows = [
-        ["確認項目",        "表示・動作",                                   "補足"],
-        ["起動画面",        "\"Simple Temp Tool v1.0.0\" が数秒表示",       "自動的にIDLE画面へ遷移"],
-        ["温度表示",        "現在の温度（℃）がリアルタイムで表示される",     "更新間隔：約200ms"],
-        ["統計エリア",      "Avg / StdDev / Max / Min すべて \"--\" 表示",   "計測開始前は値なし"],
-        ["アラーム設定値",  "HI / LO の設定温度が画面右側に表示",            "EEPROMに保存済みの値"],
-        ["SDカード",        "SD アイコンが表示されていれば正常認識",          "認識失敗時はエラーメッセージ表示"],
-        ["センサ異常",      "\"SENSOR ERROR\" が表示される場合",             "接続・コネクタを確認して再起動"],
+        ["確認項目",       "表示・動作",                                           "補足"],
+        ["起動画面",       '"Temperature Eval Tool  Refactored Version" が数秒表示', "自動的にIDLE画面へ遷移"],
+        ["温度表示",       "現在の温度（℃）がリアルタイム表示（500ms更新）",        "センサ未接続時は \"---.- C\" 表示"],
+        ["ボタンガイド",   "画面下部に [BtnA] Start  [BtnB] Setting を表示",        "常時表示"],
+        ["SDカード状態",   "SDReady または SD Error が画面に表示される",             "初期化失敗時はシリアルにも出力"],
+        ["センサ初期化",   "起動時に最大5回リトライ（間隔500ms）",                  "失敗しても起動継続（---.- C表示）"],
+        ["センサ異常",     "\"SENSOR ERROR\" が表示される場合",                    "接続・コネクタを確認して再起動"],
     ]
     make_table(slide, Inches(0.35), Inches(1.9), Inches(12.6), rows,
-               col_widths=[Inches(2.2), Inches(6.0), Inches(4.4)],
+               col_widths=[Inches(2.2), Inches(6.2), Inches(4.2)],
                font_size=13, row_height=Inches(0.5))
 
     add_textbox(slide,
-                "💡  センサが正常接続されていれば、起動後すぐに温度表示が始まります。ボタンを押すまで計測データは記録されません。",
+                "💡  センサが正常接続されていれば起動後すぐに温度表示が始まります。BtnA を押すまで計測データは記録されません。",
                 Inches(0.35), Inches(6.45), Inches(12.5), Inches(0.65),
                 font_size=13, color=C_NAVY)
     return slide
 
 
 def slide_07_manual_step2(prs):
-    """スライド 7: 操作マニュアル – 計測開始/終了"""
+    """スライド 7: 操作マニュアル – 計測開始/終了（4状態図付き）"""
     slide = blank_slide(prs)
     slide_background(slide)
-    header_bar(slide, "操作マニュアル ② — 計測開始・終了（RUN / RESULT）", "Section 2  操作マニュアル")
+    header_bar(slide, "操作マニュアル ② — 状態遷移と計測操作", "Section 2  操作マニュアル")
     footer_bar(slide, 7)
 
-    # 3ステップ矢印
-    steps = [
-        ("IDLE\n（待機中）",   "電源ON直後\n温度がリアルタイム表示",       C_NAVY),
-        ("RUN\n（計測中）",    "ボタン1回押し\nCSVへ自動記録開始\nアラーム監視が有効化",  C_ORANGE),
-        ("RESULT\n（結果表示）", "ボタンもう1回押し\n統計値が画面表示\nCSVファイル完成", C_GREEN),
+    # 4状態カード
+    states = [
+        ("IDLE",          "待機中\n温度リアルタイム表示",
+         "BtnA → RUN\nBtnB → ALARM_SETTING",  C_NAVY),
+        ("RUN",           "計測中\nCSV自動記録・統計更新",
+         "BtnA → RESULT",                      C_ORANGE),
+        ("RESULT",        "結果表示\n統計値を2ページ表示",
+         "BtnA → IDLE\nBtnB → ページ切替",     C_GREEN),
+        ("ALARM\nSETTING", "アラーム設定中\nHI/LO値を調整",
+         "BtnA → 項目切替 / 保存→IDLE\nBtnB → +5℃  BtnC → −5℃",
+         RGBColor(0x7B, 0x27, 0x82)),
     ]
 
-    for i, (state, desc, col) in enumerate(steps):
-        cx = Inches(0.4 + i * 4.25)
+    for i, (state, desc, btns, col) in enumerate(states):
+        cx = Inches(0.35 + i * 3.25)
         cy = Inches(1.3)
-        cw, ch = Inches(3.9), Inches(2.8)
+        cw, ch = Inches(3.0), Inches(3.2)
         card = add_rect(slide, cx, cy, cw, ch, fill_color=col)
         no_border(card)
         add_textbox(slide, state,
-                    cx + Inches(0.15), cy + Inches(0.15),
-                    cw - Inches(0.3), Inches(1.1),
-                    font_size=20, bold=True, color=C_WHITE, align=PP_ALIGN.CENTER)
+                    cx + Inches(0.12), cy + Inches(0.1),
+                    cw - Inches(0.24), Inches(0.85),
+                    font_size=19, bold=True, color=C_WHITE, align=PP_ALIGN.CENTER)
         add_textbox(slide, desc,
-                    cx + Inches(0.15), cy + Inches(1.15),
-                    cw - Inches(0.3), Inches(1.5),
-                    font_size=13, color=C_WHITE, align=PP_ALIGN.CENTER)
-        if i < 2:
+                    cx + Inches(0.12), cy + Inches(0.95),
+                    cw - Inches(0.24), Inches(0.8),
+                    font_size=12, color=C_WHITE, align=PP_ALIGN.CENTER)
+        add_rect(slide, cx + Inches(0.12), cy + Inches(1.78),
+                 cw - Inches(0.24), Inches(0.02),
+                 fill_color=RGBColor(0xFF, 0xFF, 0xFF))
+        add_textbox(slide, btns,
+                    cx + Inches(0.12), cy + Inches(1.85),
+                    cw - Inches(0.24), Inches(1.25),
+                    font_size=11, color=C_WHITE, align=PP_ALIGN.LEFT)
+        if i < 3:
             add_textbox(slide, "▶",
-                        cx + cw + Inches(0.05), cy + Inches(1.0),
-                        Inches(0.35), Inches(0.8),
-                        font_size=28, color=C_GRAY_MID, align=PP_ALIGN.CENTER)
+                        cx + cw + Inches(0.08), cy + Inches(1.2),
+                        Inches(0.15), Inches(0.8),
+                        font_size=20, color=C_GRAY_MID, align=PP_ALIGN.CENTER)
 
     rows = [
-        ["状態",     "ボタン操作",    "CSVへの記録",  "アラーム監視", "統計値更新"],
-        ["IDLE",    "押すと→RUNへ",  "なし",         "なし",         "なし"],
-        ["RUN",     "押すと→RESULTへ","10サンプル毎", "有効（HI/LO）", "50ms周期"],
-        ["RESULT",  "押すと→IDLEへ", "完了・保存済", "なし",         "計測値で固定"],
+        ["状態",            "BtnA",             "BtnB",                   "BtnC",      "CSV記録",  "統計更新"],
+        ["IDLE",           "→ RUN（計測開始）", "→ ALARM_SETTING進入",   "なし",      "なし",     "なし"],
+        ["RUN",            "→ RESULT（終了）",  "なし",                  "なし",      "10行毎",   "50ms毎"],
+        ["RESULT",         "→ IDLE（リセット）","ページ切替（0↔1）",     "なし",      "完了済",   "固定"],
+        ["ALARM_SETTING",  "HI→LO / LO保存→IDLE","+5℃ 調整",           "−5℃ 調整", "なし",     "なし"],
     ]
-    make_table(slide, Inches(0.35), Inches(4.35), Inches(12.6), rows,
-               col_widths=[Inches(1.8), Inches(2.6), Inches(2.6), Inches(2.6), Inches(3.0)],
-               font_size=13, row_height=Inches(0.5))
+    make_table(slide, Inches(0.35), Inches(4.7), Inches(12.6), rows,
+               col_widths=[Inches(2.1), Inches(2.5), Inches(2.7), Inches(1.6), Inches(1.6), Inches(2.1)],
+               font_size=12, row_height=Inches(0.44))
 
     add_textbox(slide,
-                "⚠️  RUNからIDLEには直接戻れません。必ず RESULT を経由する設計です。",
+                "⚠️  RUN → IDLE への直接遷移はなし。必ず RESULT を経由します。ALARM_SETTING はIDLE起点のみ進入可能。",
                 Inches(0.35), Inches(6.48), Inches(12.5), Inches(0.5),
                 font_size=13, color=C_RED, bold=True)
     return slide
 
 
 def slide_08_manual_alarm(prs):
-    """スライド 8: アラーム設定方法"""
+    """スライド 8: アラーム設定方法（最新実装準拠）"""
     slide = blank_slide(prs)
     slide_background(slide)
-    header_bar(slide, "操作マニュアル ③ — アラーム設定", "Section 2  操作マニュアル")
+    header_bar(slide, "操作マニュアル ③ — アラーム設定（ALARM_SETTING）", "Section 2  操作マニュアル")
     footer_bar(slide, 8)
 
     add_textbox(slide,
-                "上限（HI）・下限（LO）温度のアラームしきい値を設定・保存できます。設定値は EEPROM に記録され、電源OFF後も保持されます。",
-                Inches(0.35), Inches(1.2), Inches(12.5), Inches(0.55),
-                font_size=15, color=C_DARK_TXT)
+                "IDLE状態から BtnB を押すとアラーム設定モード（ALARM_SETTING）に遷移します。設定値は EEPROM に保存され電源OFF後も保持されます。",
+                Inches(0.35), Inches(1.2), Inches(12.5), Inches(0.52),
+                font_size=14, color=C_DARK_TXT)
 
+    # 設定手順テーブル
     rows = [
-        ["操作ステップ",     "手順の詳細"],
-        ["① 設定画面へ",    "IDLE状態でボタン長押し（約2秒）→ アラーム設定画面に遷移"],
-        ["② HI温度を設定",  "ボタン短押し：値を＋1℃ / 長押し：設定項目を切替"],
-        ["③ LO温度を設定",  "直前と同様にボタン操作で LO 値を調整"],
-        ["④ 保存・戻る",    "設定完了後に長押し → EEPROMへ書き込み → IDLE画面に戻る"],
+        ["操作ステップ",         "ボタン",  "手順の詳細"],
+        ["① 設定モードへ進入",   "BtnB",   "IDLE状態で BtnB を押す → ALARM_SETTING画面に遷移（HI設定から開始）"],
+        ["② HI温度を調整",      "BtnB/C", "BtnB : HI設定値を +5℃  /  BtnC : HI設定値を −5℃"],
+        ["③ LO設定へ切替",      "BtnA",   "HI設定中に BtnA → LO設定に切替（HI値確定）"],
+        ["④ LO温度を調整",      "BtnB/C", "BtnB : LO設定値を +5℃  /  BtnC : LO設定値を −5℃"],
+        ["⑤ 保存・終了",        "BtnA",   "LO設定中に BtnA → EEPROM保存 → アラームフラグリセット → IDLE に戻る"],
     ]
-    make_table(slide, Inches(0.35), Inches(1.9), Inches(12.6), rows,
-               col_widths=[Inches(2.8), Inches(9.8)],
-               font_size=14, row_height=Inches(0.55))
+    make_table(slide, Inches(0.35), Inches(1.82), Inches(12.6), rows,
+               col_widths=[Inches(2.6), Inches(1.3), Inches(8.7)],
+               font_size=13, row_height=Inches(0.52))
 
-    # アラーム動作の説明
+    # アラーム動作説明
     add_textbox(slide, "アラーム発報時の動作",
-                Inches(0.35), Inches(4.65), Inches(12), Inches(0.45),
-                font_size=17, bold=True, color=C_NAVY)
+                Inches(0.35), Inches(4.85), Inches(12), Inches(0.42),
+                font_size=16, bold=True, color=C_NAVY)
 
     alarm_rows = [
-        ["状態",                "表示",                   "CSVへの記録"],
-        ["温度 ≥ HI設定値",    "画面上部が赤色点滅表示",  "AL_HI フラグが該当行に記録"],
-        ["温度 ≤ LO設定値",    "画面下部が青色点滅表示",  "AL_LO フラグが該当行に記録"],
-        ["通常範囲",           "通常の白色表示",           "フラグなし"],
+        ["状態",                  "画面表示",                     "スピーカー",                "CSVへの記録"],
+        ["温度 ≥ HI設定値",       "温度を赤色（RED）で表示",       "2kHz ビープ音（500ms）",    "HI_ALARM 列が 1（true）"],
+        ["温度 ≤ LO設定値",       "温度を赤色（RED）で表示",       "1kHz ビープ音（500ms）",    "LO_ALARM 列が 1（true）"],
+        ["閾値に近い（ヒステリシス内）", "赤色のまま（クリアされない）", "発報なし（継続監視）",       "フラグ継続"],
+        ["通常範囲",              "白色（WHITE）で表示",           "なし",                      "HI_ALARM / LO_ALARM = 0"],
     ]
-    make_table(slide, Inches(0.35), Inches(5.15), Inches(12.6), alarm_rows,
-               col_widths=[Inches(3.0), Inches(5.0), Inches(4.6)],
-               font_size=13, row_height=Inches(0.45))
+    make_table(slide, Inches(0.35), Inches(5.35), Inches(12.6), alarm_rows,
+               col_widths=[Inches(2.7), Inches(2.8), Inches(2.9), Inches(4.2)],
+               font_size=12, row_height=Inches(0.44))
+
+    add_textbox(slide,
+                "💡  デフォルト設定 HI = 600℃ / LO = 400℃  /  ヒステリシス幅 = ±5℃（チラつき防止）",
+                Inches(0.35), Inches(7.05), Inches(12.5), Inches(0.42),
+                font_size=13, color=C_NAVY)
     return slide
 
 
 def slide_09_csv(prs):
-    """スライド 9: CSV出力とExcel活用"""
+    """スライド 9: CSV出力とExcel活用（最新列定義準拠）"""
     slide = blank_slide(prs)
     slide_background(slide)
     header_bar(slide, "操作マニュアル ④ — CSV出力とExcel活用", "Section 2  操作マニュアル")
     footer_bar(slide, 9)
 
-    # CSVフォーマット説明
-    add_textbox(slide, "CSV ファイルのフォーマット",
-                Inches(0.35), Inches(1.2), Inches(6.5), Inches(0.45),
+    # CSVフォーマット（実際のヘッダ行と一致）
+    add_textbox(slide, "CSV ファイルのフォーマット（全10列）",
+                Inches(0.35), Inches(1.2), Inches(12.5), Inches(0.42),
                 font_size=17, bold=True, color=C_NAVY)
+    add_textbox(slide,
+                "ヘッダ行:  ElapsedSec, Temp_C, State, Samples, Average_C, StdDev_C, Max_C, Min_C, HI_ALARM, LO_ALARM",
+                Inches(0.35), Inches(1.65), Inches(12.5), Inches(0.35),
+                font_size=11, color=C_GRAY_MID, italic=True)
 
     rows = [
-        ["列名",          "内容",                   "例"],
-        ["Count",         "計測サンプル番号",         "1, 2, 3 …"],
-        ["Temp_C",        "計測温度（℃）",            "125.3"],
-        ["Average_C",     "その時点の累積平均（℃）",  "124.8"],
-        ["StdDev_C",      "その時点の標準偏差（℃）",  "0.42"],
-        ["Max_C / Min_C", "最大値 / 最小値",          "128.0 / 121.5"],
-        ["Alarm",         "アラーム状態",             "OK / AL_HI / AL_LO"],
+        ["列名",        "内容",                              "例"],
+        ["ElapsedSec",  "RUN開始からの経過時間（秒）",          "0, 10, 20 …"],
+        ["Temp_C",      "LPFフィルタ後の計測温度（℃）",        "125.3"],
+        ["State",       "計測中の状態名",                      "RUN"],
+        ["Samples",     "累積サンプル数（Welford のカウント）",  "14"],
+        ["Average_C",   "その時点の累積平均（℃）",              "124.8"],
+        ["StdDev_C",    "その時点の標準偏差（℃）",              "0.42"],
+        ["Max_C",       "計測開始からの最大値（℃）",            "128.0"],
+        ["Min_C",       "計測開始からの最小値（℃）",            "121.5"],
+        ["HI_ALARM",    "上限アラーム発報フラグ",               "0 / 1"],
+        ["LO_ALARM",    "下限アラーム発報フラグ",               "0 / 1"],
     ]
-    make_table(slide, Inches(0.35), Inches(1.75), Inches(6.5), rows,
-               col_widths=[Inches(2.0), Inches(2.8), Inches(1.7)],
-               font_size=13, row_height=Inches(0.45))
+    make_table(slide, Inches(0.35), Inches(2.1), Inches(7.8), rows,
+               col_widths=[Inches(1.9), Inches(3.8), Inches(2.1)],
+               font_size=12, row_height=Inches(0.44))
 
     # PC側の作業手順
     add_textbox(slide, "PCでの読み込み手順（Excel）",
-                Inches(7.1), Inches(1.2), Inches(5.8), Inches(0.45),
-                font_size=17, bold=True, color=C_NAVY)
+                Inches(8.35), Inches(1.2), Inches(4.8), Inches(0.42),
+                font_size=16, bold=True, color=C_NAVY)
 
     steps = [
-        "① 計測終了後、MicroSDカードをPCに挿入",
-        "② ファイル名「DATA_0001.csv」を確認",
-        "③ Excelで「ファイル→開く」からCSVを選択",
-        "④ 各列が自動的に分割されて読込まれる",
-        "⑤ Temp_C列を選択してグラフを挿入",
-        "⑥ 統計列（Average_C / StdDev_C）も\n　追加グラフ化が可能",
+        "① BtnA で計測終了（RESULT画面）",
+        "② MicroSDカードをPCに挿入",
+        "③ DATA_0000.csv を開く（連番で採番）",
+        "④ Excelが列を自動認識して読込み",
+        "⑤ ElapsedSec を横軸にグラフ挿入",
+        "⑥ HI_ALARM/LO_ALARM列で\n　フィルタをかけて異常点を確認",
     ]
     for j, s in enumerate(steps):
         add_textbox(slide, s,
-                    Inches(7.1), Inches(1.75 + j * 0.72),
-                    Inches(5.8), Inches(0.65),
+                    Inches(8.35), Inches(1.72 + j * 0.72),
+                    Inches(4.8), Inches(0.65),
                     font_size=13, color=C_DARK_TXT)
 
     # 注意事項
-    add_rect(slide, Inches(0.35), Inches(6.35), Inches(12.6), Inches(0.68),
+    add_rect(slide, Inches(0.35), Inches(6.48), Inches(12.6), Inches(0.55),
              fill_color=C_GRAY_LT)
     add_textbox(slide,
-                "📁  ファイル名は計測ごとに自動採番 (DATA_0001 → DATA_0002 → … )。同名ファイルは上書きされません。",
-                Inches(0.5), Inches(6.37), Inches(12.2), Inches(0.6),
+                "📁  ファイル名は DATA_0000.csv から自動採番（起動後に /DATA_0000, /DATA_0001 … と増加）。同名上書きなし。",
+                Inches(0.5), Inches(6.52), Inches(12.2), Inches(0.48),
                 font_size=13, color=C_DARK_TXT)
     return slide
 
@@ -717,29 +747,29 @@ def slide_10_architecture(prs):
 
 
 def slide_11_tasks(prs):
-    """スライド 11: タスク設計"""
+    """スライド 11: タスク設計（各タスクの実際の処理内容を正確に記載）"""
     slide = blank_slide(prs)
     slide_background(slide)
     header_bar(slide, "タスク設計（3タスク・マルチレート）", "Section 3  技術詳細")
     footer_bar(slide, 11)
 
-    add_textbox(slide, "単一 loop() を使わず、周期の異なる3タスクを時分割で実行することで処理の干渉を防止",
+    add_textbox(slide, "単一 loop() を使わず、周期の異なる3タスクを millis() で時分割実行することで処理干渉を防止",
                 Inches(0.35), Inches(1.2), Inches(12.5), Inches(0.5),
                 font_size=15, color=C_DARK_TXT)
 
     tasks = [
-        ("IO_Task",     "10 ms",  "95%",
-         "・センサ読取（MAX31855 / SPI）\n・ローパスフィルタ（α=0.1）\n・アラーム判定（HI/LO比較）"),
-        ("Logic_Task",  "50 ms",  "98%",
-         "・Welford法による統計更新\n　（平均・分散・標準偏差）\n・SDカードへのバッファ書込"),
-        ("UI_Task",     "200 ms", "97.5%",
-         "・LCDへの画面描画\n・ボタン入力の判定\n・状態遷移制御"),
+        ("IO_Task",    "10 ms",  "95%",
+         "・M5.update()（ボタンエッジ検出）\n・センサ読取（MAX31855 / SPI）\n　　読取間隔は TC_READ_INTERVAL=500ms\n・LPFフィルタ適用（α=0.1）\n・アラーム判定（ヒステリシス付き）\n・SD書込（10行バッファごと）"),
+        ("Logic_Task", "50 ms",  "98%",
+         "・Welford法による逐次統計更新\n　（Average / StdDev / Max / Min）\n・ボタンA/B/C イベント処理\n・状態遷移制御\n・EEPROM保存処理（設定確定時）"),
+        ("UI_Task",    "200 ms", "97.5%",
+         "・状態別LCD画面描画\n　IDLE / RUN / RESULT(2ページ)\n　ALARM_SETTING\n・センサエラー / SD状態表示\n・アラーム時は温度を赤色表示"),
     ]
 
     for i, (name, period, margin, detail) in enumerate(tasks):
         cx = Inches(0.35 + i * 4.33)
         cy = Inches(1.85)
-        cw, ch = Inches(4.1), Inches(3.7)
+        cw, ch = Inches(4.1), Inches(4.05)
         card = add_rect(slide, cx, cy, cw, ch, fill_color=C_WHITE)
         card.line.color.rgb = C_NAVY
         card.line.width = Pt(1.5)
@@ -758,22 +788,18 @@ def slide_11_tasks(prs):
                     font_size=13, color=C_GREEN)
         add_textbox(slide, detail,
                     cx + Inches(0.15), cy + Inches(1.52),
-                    cw - Inches(0.3), Inches(2.0),
-                    font_size=13, color=C_DARK_TXT)
+                    cw - Inches(0.3), Inches(2.4),
+                    font_size=12, color=C_DARK_TXT)
 
-    # モジュール概要
-    add_textbox(slide, "6モジュール構成",
-                Inches(0.35), Inches(5.75), Inches(5), Inches(0.4),
-                font_size=16, bold=True, color=C_NAVY)
-    mod_text = "MeasurementCore  /  IOController  /  DisplayManager  /  SDManager  /  EEPROMManager  /  Tasks"
-    add_textbox(slide, mod_text,
-                Inches(0.35), Inches(6.15), Inches(12.5), Inches(0.4),
-                font_size=13, color=C_DARK_TXT)
+    add_textbox(slide,
+                "💡  IO_Taskのセンサ読取は10ms周期だが実際の読取は TC_READ_INTERVAL_MS=500ms ごと（MAX31855変換完了を待つ設計）",
+                Inches(0.35), Inches(6.18), Inches(12.5), Inches(0.38),
+                font_size=12, color=C_NAVY)
     return slide
 
 
 def slide_12_algorithms(prs):
-    """スライド 12: アルゴリズム"""
+    """スライド 12: アルゴリズム（実際のコードに準拠した式）"""
     slide = blank_slide(prs)
     slide_background(slide)
     header_bar(slide, "主要アルゴリズム", "Section 3  技術詳細")
@@ -781,40 +807,48 @@ def slide_12_algorithms(prs):
 
     # Welford法
     add_textbox(slide, "① Welford 法（オンライン統計計算）",
-                Inches(0.35), Inches(1.2), Inches(12), Inches(0.5),
+                Inches(0.35), Inches(1.2), Inches(12), Inches(0.45),
                 font_size=18, bold=True, color=C_NAVY)
-    welford = add_rect(slide, Inches(0.35), Inches(1.8), Inches(8.4), Inches(2.0),
+    welford = add_rect(slide, Inches(0.35), Inches(1.75), Inches(8.4), Inches(2.45),
                        fill_color=C_WHITE)
     welford.line.color.rgb = C_GRAY_MID
     welford.line.width = Pt(1)
     add_textbox(slide,
-                "計測データを配列に蓄積せず、サンプルが来るたびに逐次的に\n"
-                "平均・分散・標準偏差を更新するアルゴリズム。\n\n"
-                "採用理由：長時間計測でも RAM 使用量が増加しない。\n"
-                "結果：RAM使用率 7.2% を計測時間によらず一定に維持。",
-                Inches(0.5), Inches(1.85), Inches(8.0), Inches(1.9),
+                "計測データを配列に蓄積せず、サンプルが来るたびに逐次的に平均・分散・標準偏差を更新。\n"
+                "double型で計算することで float の丸め誤差を最小化。\n\n"
+                "  delta  = x[n] − prevMean\n"
+                "  Sum   += x[n]  →  newMean = Sum / Count\n"
+                "  M2    += delta × (x[n] − newMean)\n"
+                "  StdDev = √(M2 / Count)   ← Logic_Task 50ms周期で毎回計算",
+                Inches(0.5), Inches(1.82), Inches(8.0), Inches(2.3),
                 font_size=13, color=C_DARK_TXT)
-    info_card(slide, Inches(9.0), Inches(1.8), Inches(3.6), Inches(2.0),
-              "RAM 使用率", "7.2%\n（計測中も一定）",
-              value_size=20, accent_color=C_GREEN)
+    info_card(slide, Inches(9.0), Inches(1.75), Inches(3.6), Inches(2.45),
+              "RAM 使用率", "7.2%\n（計測時間に\n依存しない）",
+              value_size=18, accent_color=C_GREEN)
 
     # ローパスフィルタ
     add_textbox(slide, "② 一次遅れローパスフィルタ（ノイズ除去）",
-                Inches(0.35), Inches(4.0), Inches(12), Inches(0.5),
+                Inches(0.35), Inches(4.35), Inches(12), Inches(0.45),
                 font_size=18, bold=True, color=C_NAVY)
-    lpf = add_rect(slide, Inches(0.35), Inches(4.6), Inches(8.4), Inches(1.8),
+    lpf = add_rect(slide, Inches(0.35), Inches(4.9), Inches(8.4), Inches(1.9),
                    fill_color=C_WHITE)
     lpf.line.color.rgb = C_GRAY_MID
     lpf.line.width = Pt(1)
     add_textbox(slide,
-                "前回値を 90%・新規値を 10% の重みで加重平均。\n\n"
-                "  filtered = 0.9 × prev + 0.1 × raw\n\n"
-                "α = 0.1 は実機での目視確認と CSV データ分析によりチューニング。",
-                Inches(0.5), Inches(4.65), Inches(8.0), Inches(1.7),
+                "IO_Task（10ms周期）内で TC_READ_INTERVAL_MS=500ms の間隔で適用。\n"
+                "α = FILTER_ALPHA = 0.1f（Global.h 定義）\n\n"
+                "  filtered[n] = filtered[n-1] × (1 − α)  +  raw[n] × α\n\n"
+                "初回読取時は raw値をそのまま初期値に設定（NaN収束待ち回避）。",
+                Inches(0.5), Inches(4.97), Inches(8.0), Inches(1.78),
                 font_size=13, color=C_DARK_TXT)
-    info_card(slide, Inches(9.0), Inches(4.6), Inches(3.6), Inches(1.8),
-              "計測精度", "±1℃\n（MAX31855 仕様準拠）",
-              value_size=20, accent_color=C_ORANGE)
+    info_card(slide, Inches(9.0), Inches(4.9), Inches(3.6), Inches(1.9),
+              "計測精度", "±1℃\n（MAX31855\n仕様準拠）",
+              value_size=18, accent_color=C_ORANGE)
+
+    # ヒステリシスアラーム
+    add_textbox(slide, "③ ヒステリシス付きアラーム判定（updateAlarmFlags）",
+                Inches(0.35), Inches(6.95), Inches(12), Inches(0.38),
+                font_size=15, bold=True, color=C_NAVY)
     return slide
 
 
