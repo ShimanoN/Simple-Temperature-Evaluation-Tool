@@ -5,7 +5,7 @@ hardware_mcu: M5Stack Basic V2.7
 hardware_sensor: MAX31855
 tech_stack: "ESP32  /  C++ (Arduino)  /  PlatformIO"
 version: "v1.0.0  ｜  2026 年 3 月"
-output: Simple_Temp_Tool_Demo.pptx
+output: simple_temperature_tool.pptx
 ---
 
 ## slide_01 | layout: title
