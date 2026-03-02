@@ -7,6 +7,20 @@
 
 ---
 
+## For AI Assistants
+
+> **Before starting any PPTX task: read [`PPTX_CREATION_WORKFLOW.md`](PPTX_CREATION_WORKFLOW.md) first.**
+>
+> That file is the complete AI workflow guide containing:
+> - **Phase 1**: Interview questions to ask the user (ask all in a single message)
+> - **Phase 2**: Spec format reference — YAML front matter + slide sections
+> - **Layout reference**: All 7 layouts with every parameter documented
+> - **AI behavior checklist**: What to verify before running the converter
+>
+> This README is the human-facing user guide. `PPTX_CREATION_WORKFLOW.md` is for you.
+
+---
+
 ## Quick Start
 
 ### Installation

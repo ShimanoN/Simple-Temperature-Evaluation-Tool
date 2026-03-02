@@ -44,12 +44,12 @@ C_NAVY     = RGBColor(0x0D, 0x47, 0x7F)
 C_ORANGE   = RGBColor(0xFF, 0x6D, 0x00)
 C_WHITE    = RGBColor(0xFF, 0xFF, 0xFF)
 C_DARK_TXT = RGBColor(0x1A, 0x1A, 0x2E)
-C_GREEN    = RGBColor(0x27, 0xAE, 0x60)
+C_GREEN    = RGBColor(0x27, 0xAE, 0x60)  # reserved — available for custom renderers (e.g. success row)
 C_RED      = RGBColor(0xC0, 0x39, 0x2B)
 C_GRAY_LT  = RGBColor(0xF4, 0xF4, 0xF4)
 C_GRAY_MID = RGBColor(0x99, 0x99, 0x99)
 C_RED_LT   = RGBColor(0xFF, 0xE0, 0xE0)
-C_BLACK    = RGBColor(0x00, 0x00, 0x00)
+C_BLACK    = RGBColor(0x00, 0x00, 0x00)  # reserved — available for custom renderers
 
 # ===========================================================================
 # ▼ FONT CONSTANTS
@@ -394,6 +394,15 @@ def render_toc(prs, s, config: dict, params: dict, page_num: int):
 
     header_bar(s, title, "")
     footer_bar(s, page_num, _ptitle(config))
+
+    # Overflow guard: each item is 0.62" tall, starting at y=1.35"
+    # Max safe items before footer overlap (CONTENT_BOTTOM=6.85"):
+    #   1.35 + n*0.62 + 0.42 <= 6.85  =>  n <= 8
+    MAX_TOC_ITEMS = 8
+    if len(items) > MAX_TOC_ITEMS:
+        print(f"  ⚠ WARNING: toc has {len(items)} items; max {MAX_TOC_ITEMS} "
+              f"fit without overlapping the footer. Consider splitting into two slides.")
+
     for i, item in enumerate(items):
         y = 1.35 + i * 0.62
         # Left accent bar
@@ -463,10 +472,11 @@ def render_bullet(prs, s, config: dict, params: dict, page_num: int):
         box_y = bullet_start_y + len(bullets) * 0.52 + 0.2
         box_y = clamp_to_content(box_y, 0.8)
         add_rect(s, CX, Inches(box_y), CW, Inches(0.55), C_NAVY)
-        add_textbox(s, highlight,
-                    Inches(0.5), Inches(box_y + 0.07), Inches(12.3), Inches(0.38),
-                    size=Pt(16), color=C_WHITE, bold=True, font=FONT_JP,
-                    align=PP_ALIGN.CENTER)
+        if highlight:  # guard: don't render an empty textbox
+            add_textbox(s, highlight,
+                        Inches(0.5), Inches(box_y + 0.07), Inches(12.3), Inches(0.38),
+                        size=Pt(16), color=C_WHITE, bold=True, font=FONT_JP,
+                        align=PP_ALIGN.CENTER)
         if sub_text:
             sub_y = box_y + 0.62
             sub_y = clamp_to_content(sub_y, 0.4)
@@ -479,10 +489,17 @@ def render_bullet(prs, s, config: dict, params: dict, page_num: int):
 def render_table(prs, s, config: dict, params: dict, page_num: int):
     """
     layout: table
-    params: title, section, columns, col_widths (list of floats),
-            rows (list of lists), row_height (float, default 0.40),
-            warning (str, optional), warning_code (str, optional),
-            note (str, optional)
+    params:
+        title          : slide title (header bar)
+        section        : section label (header bar, optional)
+        subtitle       : sub-heading below header bar, above table (optional, 16pt navy)
+        columns        : list of column header strings
+        col_widths     : list of floats in inches (optional — auto equal-split if omitted)
+        rows           : list of data rows (list of lists)
+        row_height     : float in inches, default 0.40
+        warning        : red warning box below table (optional)
+        warning_code   : monospace code line inside warning box (optional)
+        note           : gray info box below table (optional)
     """
     title        = params.get('title', '')
     section      = params.get('section', '')
@@ -497,7 +514,7 @@ def render_table(prs, s, config: dict, params: dict, page_num: int):
     header_bar(s, title, section)
     footer_bar(s, page_num, _ptitle(config))
 
-    # Subtitle if present
+    # Subtitle if present — shifts table start down to keep breathing room
     subtitle = params.get('subtitle', '')
     if subtitle:
         add_textbox(s, subtitle,
@@ -514,7 +531,8 @@ def render_table(prs, s, config: dict, params: dict, page_num: int):
         unit = 12.63 / num_cols
         col_widths_in = [Inches(unit)] * num_cols
 
-    TABLE_START_Y = 1.55
+    # When subtitle is present: 0.10" gap becomes 0.15" by pushing table down
+    TABLE_START_Y = 1.60 if subtitle else 1.55
     make_table(s, CX, Inches(TABLE_START_Y), CW, all_rows, col_widths_in,
                row_height=Inches(row_h))
 

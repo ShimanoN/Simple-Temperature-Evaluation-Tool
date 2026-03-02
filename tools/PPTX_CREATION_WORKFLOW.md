@@ -131,11 +131,16 @@ title: "{{product}} ピン配置"    # ← auto-replaced at render time
 ## Phase 3 — Running the Converter
 
 ```powershell
-# Windows (use the Python that has pptx + yaml installed):
-& "C:\Users\島野拓実\AppData\Local\Python\bin\python.exe" tools/spec_to_pptx.py docs/<project>/presentation_spec.md
-
-# Or if python is in PATH:
+# Standard — run from the project root:
 python tools/spec_to_pptx.py docs/<project>/presentation_spec.md
+
+# Windows PowerShell: if 'python' is not in PATH, use the full interpreter path.
+# Find it via:  VS Code status bar (bottom-left) → Python interpreter
+# or run:       where.exe python
+& "C:\path\to\python.exe" tools/spec_to_pptx.py docs/<project>/presentation_spec.md
+
+# Verify dependencies before first run:
+python -c "import pptx, yaml; print('Dependencies OK')"
 ```
 
 **Required packages**: `python-pptx`, `PyYAML`  
