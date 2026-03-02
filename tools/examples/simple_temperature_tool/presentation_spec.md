@@ -18,10 +18,8 @@ output: simple_temperature_tool.pptx
 ## slide_02 | layout: toc
 items:
   - "1.  プロジェクト概要"
-  - "2.  コストメリット"
-  - "3.  ハードウェア構成"
-  - "4.  ソフトウェア設計"
-  - "5.  実装のポイント"
+  - "2.  ハードウェア構成"
+  - "3.  まとめ"
 
 ## slide_03 | layout: section_divider
 section_num: "Section 1"
@@ -106,7 +104,7 @@ note: "EEPROM: ESP32 内蔵フラッシュを仮想 EEPROM として使用（外
 
 ## slide_09 | layout: bullet
 title: まとめ
-section: "Section 4  まとめ"
+section: まとめ
 bullets:
   - "{{total_cost}} で構築した熱電対温度計測システム（市販品比 1/3.1 の価格）"
   - "SD 自動記録・LCD リアルタイム表示・上下限アラームを完全実装"

@@ -236,8 +236,9 @@ sub_text: "補足テキスト（オプション）"               # below highli
 ## slide_05 | layout: table
 title: テーブルスライドタイトル
 section: "Section X  セクション名"
-columns: [列1, 列2, 列3, 列4]
-col_widths: [2.0, 2.5, 4.0, 4.1]   # inches — must sum to ~12.6
+subtitle: "ヘッダーバー直下のサブ見出し（オプション）"
+columns: [列１, 列２, 列３, 列４]
+col_widths: [2.0, 2.5, 4.0, 4.1]   # inches — optional; omit for auto equal-width split
 rows:
   - [値1, 値2, 値3, 値4]
   - [値1, 値2, 値3, 値4]

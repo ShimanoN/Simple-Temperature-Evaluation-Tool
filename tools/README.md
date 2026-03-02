@@ -92,7 +92,7 @@ Use `{{key}}` in slide content — they are replaced automatically at render tim
 ### **Phase 3: Generate**
 
 ```bash
-python spec_to_pptx.py docs/project/presentation_spec.md
+python tools/spec_to_pptx.py docs/<project>/presentation_spec.md
 ```
 
 Output location is specified in front matter `output:` field.
@@ -239,8 +239,9 @@ Data table with optional warning and note boxes.
 ## slide_05 | layout: table
 title: Pin Assignment
 section: Section 2  Hardware
+subtitle: "Optional sub-heading shown below header bar"  # optional
 columns: [GPIO, Signal, Target, Note]
-col_widths: [2.0, 2.5, 4.0, 4.1]          # must sum to ~12.6 inches
+col_widths: [2.0, 2.5, 4.0, 4.1]          # optional — omit for auto equal-width split
 rows:
   - [GPIO 18, SCK, MAX31855 CLK, Shared]
   - [GPIO 19, MISO, MAX31855 DO, Shared]
@@ -398,7 +399,7 @@ bullets:
 See `examples/simple_temperature_tool/presentation_spec.md` for a complete 9-slide example using all 7 layouts.
 
 ```bash
-python spec_to_pptx.py examples/simple_temperature_tool/presentation_spec.md
+python tools/spec_to_pptx.py examples/simple_temperature_tool/presentation_spec.md
 ```
 
 Output: `examples/simple_temperature_tool/simple_temperature_tool.pptx`

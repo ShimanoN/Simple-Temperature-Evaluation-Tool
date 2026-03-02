@@ -293,7 +293,7 @@ def parse_spec(filepath: str):
         config (dict):  YAML front matter (project-wide settings)
         slides (list):  list of {'layout': str, 'params': dict}
     """
-    with open(filepath, 'r', encoding='utf-8') as f:
+    with open(filepath, 'r', encoding='utf-8-sig') as f:  # utf-8-sig strips BOM on Windows
         content = f.read()
 
     # --- Extract YAML front matter ---
@@ -506,7 +506,13 @@ def render_table(prs, s, config: dict, params: dict, page_num: int):
 
     # Build full rows (header + data)
     all_rows = [columns] + [list(r) for r in data_rows]
-    col_widths_in = [Inches(w) for w in col_widths_f]
+    if col_widths_f:
+        col_widths_in = [Inches(w) for w in col_widths_f]
+    else:
+        # Auto-equal split across full content width (12.63")
+        num_cols = len(all_rows[0]) if all_rows else 1
+        unit = 12.63 / num_cols
+        col_widths_in = [Inches(unit)] * num_cols
 
     TABLE_START_Y = 1.55
     make_table(s, CX, Inches(TABLE_START_Y), CW, all_rows, col_widths_in,
@@ -556,7 +562,7 @@ def render_dual_table(prs, s, config: dict, params: dict, page_num: int):
         right_label        : label above right table
         right_rows         : list of rows (first row = header)
         right_col_widths   : list of floats in inches (default: auto-split 6.48")
-        right_highlight_row: int → highlight this row index in navy (1-based, 0=header)
+        right_highlight_row: int → highlight this row index in navy (0-indexed: 0=header, 1=first data row, 2=second data row, …)
         highlight          : text for navy summary box (optional)
         sub_highlight      : orange subtext in summary box (optional)
         checklist          : list of strings for gray box below (optional)
