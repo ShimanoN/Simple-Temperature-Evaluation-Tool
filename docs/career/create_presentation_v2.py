@@ -403,74 +403,77 @@ def slide04(prs):
     footer_bar(s, 4)
 
     # 左ブロック見出し
-    add_textbox(s, "本ツールの材料費（推定）",
+    add_textbox(s, "本ツール 品目別コスト",
                 Inches(0.35), Inches(1.1), Inches(5.8), Inches(0.35),
                 size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
 
     # コスト内訳テーブル
     cost_rows = [
         ["部品", "購入先目安", "価格（税込）"],
-        ["M5Stack Core2", "スイッチサイエンス", "¥6,600"],
+        ["M5Stack Basic V2.7", "Amazon", "¥7,990"],
         ["MAX31855 ブレークアウト", "秋月電子", "¥980"],
         ["K型熱電対 (1m)", "Amazon 等", "¥700"],
         ["MicroSD (16GB)", "量販店", "¥600"],
         ["ジャンパワイヤ", "秋月電子", "¥200"],
-        ["合計", "—", "¥9,080"],
+        ["合計", "—", "¥9,570"],
     ]
     tbl_cost = make_table(
         s,
         Inches(0.35), Inches(1.5), Inches(5.8), cost_rows,
         [Inches(2.9), Inches(1.5), Inches(1.4)],
-        row_height=Inches(0.42)
+        row_height=Inches(0.40)
     )
     # 合計行（行6）を C_ORANGE 着色
     color_row(tbl_cost, 6, C_ORANGE, C_WHITE, bold=True)
 
     # 右ブロック見出し
-    add_textbox(s, "市販温度データロガーとの比較（推定）",
+    add_textbox(s, "市販温度ロガーとの価格比較",
                 Inches(6.5), Inches(1.1), Inches(6.48), Inches(0.35),
                 size=Pt(15), color=C_NAVY, bold=True, font=FONT_JP)
 
     # 市販品比較テーブル
     market_rows = [
-        ["製品カテゴリ", "代表製品例", "概算価格"],
-        ["本ツール（自作）", "M5Stack + MAX31855", "約 ¥9,000"],
-        ["汎用 USB ロガー", "各社標準品", "¥30,000〜¥50,000"],
-        ["熱電対ハンディロガー", "HIOKI LR8520 系", "¥50,000〜¥120,000"],
-        ["熱電対 SD ロガー", "グラフテック GL240 等", "¥80,000〜¥150,000"],
-        ["産業用データロガー", "各社産業グレード", "¥100,000〜¥250,000+"],
+        ["カテゴリ", "代表製品", "概算価格"],
+        ["本ツール（自作）", "M5Stack + MAX31855", "¥9,570"],
+        ["標準製品", "USB データロガー", "¥30,000〜¥50,000"],
+        ["プロフェッショナル", "産業用データロガー", "¥100,000〜¥250,000+"],
     ]
     tbl_mkt = make_table(
         s,
         Inches(6.5), Inches(1.5), Inches(6.48), market_rows,
         [Inches(2.8), Inches(2.18), Inches(1.5)],
-        row_height=Inches(0.42)
+        row_height=Inches(0.40)
     )
     # 本ツール行（行1）を C_NAVY 着色
     color_row(tbl_mkt, 1, C_NAVY, C_WHITE, bold=True)
 
     # コスト削減強調ボックス
-    add_rect(s, Inches(0.35), Inches(4.2), Inches(12.6), Inches(1.3), C_NAVY)
+    add_rect(s, Inches(0.35), Inches(3.0), Inches(12.6), Inches(1.4), C_NAVY)
     add_textbox(s,
-                "市販品の最安モデル（¥30,000〜）と比べて → 約 ¥21,000 以上のコスト削減",
-                Inches(0.5), Inches(4.3), Inches(12.3), Inches(0.55),
-                size=Pt(20), color=C_WHITE, bold=True, font=FONT_JP,
+                "標準製品の 1/3.1 の価格で同等機能を実現",
+                Inches(0.5), Inches(3.1), Inches(12.3), Inches(0.6),
+                size=Pt(22), color=C_WHITE, bold=True, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
     add_textbox(s,
-                "市販品の 1/4 〜 1/28 のコストで、同等の計測・記録・アラーム機能を自作実現",
-                Inches(0.5), Inches(4.9), Inches(12.3), Inches(0.45),
-                size=Pt(14), color=C_ORANGE, font=FONT_JP,
+                "本ツール ¥9,570 vs 標準ロガー ¥30,000〜 → 最大 ¥20,000 以上削減",
+                Inches(0.5), Inches(3.8), Inches(12.3), Inches(0.5),
+                size=Pt(15), color=C_ORANGE, font=FONT_JP,
+                align=PP_ALIGN.CENTER)
+    add_textbox(s,
+                "（SD 自動記録 ・ LCD リアルタイム表示 ・ 上下限アラーム機能 完全実装）",
+                Inches(0.5), Inches(4.35), Inches(12.3), Inches(0.35),
+                size=Pt(12), color=C_WHITE, font=FONT_JP,
                 align=PP_ALIGN.CENTER)
 
     # 機能チェックリスト
-    add_rect(s, Inches(0.35), Inches(5.65), Inches(12.6), Inches(0.7), C_GRAY_LT)
-    add_textbox(s,
-                "実装済み機能:  ✓ SD 自動記録  ✓ LCD リアルタイム表示  "
-                "✓ 上下限アラーム（ビープ音）  ✓ スタンドアロン動作  "
-                "✓ EEPROM 設定保存  ✓ 統計解析（平均・σ・Max/Min）",
-                Inches(0.55), Inches(5.72), Inches(12.2), Inches(0.58),
-                size=Pt(12), color=C_DARK_TXT, font=FONT_JP,
-                align=PP_ALIGN.CENTER)
+    add_rect(s, Inches(0.35), Inches(4.55), Inches(12.6), Inches(1.0), C_GRAY_LT)
+    add_multiline_textbox(s, [
+        "✓ SD 自動記録  ✓ LCD リアルタイム表示  ✓ 上下限アラーム（ビープ音）",
+        "✓ スタンドアロン動作  ✓ EEPROM 設定保存  ✓ 統計解析（平均・σ・Max/Min）",
+    ],
+        Inches(0.55), Inches(4.62), Inches(12.2), Inches(0.82),
+        size=Pt(12), color=C_DARK_TXT, font=FONT_JP,
+        align=PP_ALIGN.CENTER)
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +511,7 @@ def slide05(prs):
 
     # 中央ブロック（M5Stack）
     add_rect(s, Inches(4.2), Inches(1.15), Inches(5.0), Inches(5.5), C_NAVY)
-    add_textbox(s, "M5Stack Core2",
+    add_textbox(s, "M5Stack Basic V2.7",
                 Inches(4.3), Inches(1.25), Inches(4.8), Inches(0.5),
                 size=Pt(16), color=C_WHITE, bold=True, font=FONT_EN,
                 align=PP_ALIGN.CENTER)
@@ -597,25 +600,25 @@ def slide07(prs):
     ]
     make_table(s, CX, Inches(1.55), Inches(12.6), rows,
                [Inches(2.0), Inches(2.5), Inches(4.0), Inches(4.1)],
-               row_height=Inches(0.48))
+               row_height=Inches(0.45))
 
     # 警告ボックス
-    add_rect(s, Inches(0.35), Inches(4.25), Inches(12.6), Inches(1.1),
+    add_rect(s, Inches(0.35), Inches(4.0), Inches(12.6), Inches(1.05),
              C_RED_LT, C_RED, line_width=1.5)
     add_textbox(s,
                 "⚠ SD カードの CS は GPIO4 (TFCARD_CS_PIN) を明示指定すること",
-                Inches(0.55), Inches(4.32), Inches(12.2), Inches(0.4),
+                Inches(0.55), Inches(4.05), Inches(12.2), Inches(0.4),
                 size=Pt(13), color=C_RED, bold=True, font=FONT_JP)
     add_textbox(s,
                 "SD.begin(TFCARD_CS_PIN, SPI, 40000000);  // ← GPIO5 デフォルトでは MAX31855 と衝突！",
-                Inches(0.55), Inches(4.75), Inches(12.2), Inches(0.45),
+                Inches(0.55), Inches(4.48), Inches(12.2), Inches(0.45),
                 size=Pt(12), color=C_DARK_TXT, font=FONT_CODE)
 
-    add_rect(s, CX, Inches(5.5), Inches(12.6), Inches(0.8), C_GRAY_LT)
+    add_rect(s, CX, Inches(5.15), Inches(12.6), Inches(0.7), C_GRAY_LT)
     add_textbox(s,
                 "EEPROM: ESP32 内蔵フラッシュを仮想 EEPROM として使用（外部配線なし）",
-                Inches(0.55), Inches(5.58), Inches(12.2), Inches(0.55),
-                size=Pt(13), color=C_DARK_TXT, font=FONT_JP)
+                Inches(0.55), Inches(5.22), Inches(12.2), Inches(0.55),
+                size=Pt(12), color=C_DARK_TXT, font=FONT_JP)
 
 
 # ---------------------------------------------------------------------------
