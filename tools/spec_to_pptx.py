@@ -288,10 +288,10 @@ def render_title(prs, s, config: dict, params: dict, page_num: int):
     version   = config.get('version', '')
 
     # Build subtitle from config — single source of truth
-    if hw_mcu and hw_sensor:
-        subtitle = f"{hw_mcu} × {hw_sensor}  熱電対温度計測システム"
-    else:
-        subtitle = config.get('subtitle', '')
+    # Priority: explicit 'subtitle' field > auto-build from hw_mcu × hw_sensor
+    subtitle = config.get('subtitle', '')
+    if not subtitle and hw_mcu and hw_sensor:
+        subtitle = f"{hw_mcu} × {hw_sensor}"
 
     add_textbox(s, project,
                 Inches(1.0), Inches(1.8), Inches(11.3), Inches(0.9),
@@ -306,8 +306,7 @@ def render_title(prs, s, config: dict, params: dict, page_num: int):
 
     add_rect(s, Inches(1.0), Inches(3.62), Inches(11.3), Inches(0.04), C_ORANGE)
 
-    features = params.get('features',
-        'リアルタイム計測 ／ 統計解析 ／ SD カード記録 ／ アラーム機能')
+    features = params.get('features', config.get('features', ''))
     add_textbox(s, features,
                 Inches(1.0), Inches(3.8), Inches(11.3), Inches(0.45),
                 size=Pt(15), color=C_ORANGE, font=FONT_JP,
@@ -405,7 +404,7 @@ def render_bullet(prs, s, config: dict, params: dict, page_num: int):
     # Optional highlight box below bullets
     if highlight or sub_text:
         box_y = bullet_start_y + len(bullets) * 0.52 + 0.2
-        clamp_to_content(box_y, 0.8)
+        box_y = clamp_to_content(box_y, 0.8)
         add_rect(s, CX, Inches(box_y), CW, Inches(0.55), C_NAVY)
         add_textbox(s, highlight,
                     Inches(0.5), Inches(box_y + 0.07), Inches(12.3), Inches(0.38),
@@ -413,7 +412,7 @@ def render_bullet(prs, s, config: dict, params: dict, page_num: int):
                     align=PP_ALIGN.CENTER)
         if sub_text:
             sub_y = box_y + 0.62
-            clamp_to_content(sub_y, 0.4)
+            sub_y = clamp_to_content(sub_y, 0.4)
             add_textbox(s, sub_text,
                         Inches(0.5), Inches(sub_y), Inches(12.3), Inches(0.4),
                         size=Pt(13), color=C_DARK_TXT, font=FONT_JP,
@@ -605,8 +604,10 @@ def render_two_column(prs, s, config: dict, params: dict, page_num: int):
     render_column(6.72, right_title, right_items)
 
     if note:
-        note_y = 6.2
-        clamp_to_content(note_y, 0.5)
+        # Place note below the longer column's last item
+        max_items = max(len(left_items), len(right_items))
+        note_y = 1.7 + max_items * 0.52 + 0.2
+        note_y = clamp_to_content(note_y, 0.48)
         add_rect(s, CX, Inches(note_y), CW, Inches(0.48), C_GRAY_LT)
         add_textbox(s, note,
                     Inches(0.55), Inches(note_y + 0.07), Inches(12.2), Inches(0.35),

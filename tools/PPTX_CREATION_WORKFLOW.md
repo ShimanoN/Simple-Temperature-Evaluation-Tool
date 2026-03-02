@@ -348,7 +348,6 @@ When starting a new PPTX session, AI must:
 |------|-------|---------|
 | `tools/PPTX_CREATION_WORKFLOW.md` | AI reference | This file — master workflow |
 | `tools/spec_to_pptx.py` | AI (do not edit manually) | Spec parser + PPTX renderer |
-| `tools/pptx_template.py` | AI reference | Low-level helper functions |
 | `docs/<project>/presentation_spec.md` | Human + AI co-authored | Slide content spec |
 | `docs/<project>/<output>.pptx` | Auto-generated | Final output |
 
