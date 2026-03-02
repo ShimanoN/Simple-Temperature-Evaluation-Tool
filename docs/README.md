@@ -1,251 +1,120 @@
-# 📘 Simple Temperature Evaluation Tool - ドキュメント総合ガイド
+﻿#  Simple Temperature Evaluation Tool - ドキュメント総合ガイド
 
 **プロジェクト**: M5Stack 温度評価ツール  
-**現在のステージ**: Stage 2-B (Code Quality Refactoring) ✅ 完了  
-**最終更新**: 2026年2月26日  
-**ビルド状態**: ✅ SUCCESS (m5stack)  
+**バージョン**: v1.0.0  リリース完了（開発終了）  
+**最終更新**: 2026年2月  
+**ビルド状態**:  SUCCESS  Flash 31.0% (406KB) / RAM 7.2% (23KB)
 
-**CHANGELOG**: See [CHANGELOG.md](CHANGELOG.md) for recent fixes and refactor summaries.
-
----
-
-## 🎯 ドキュメントを探す
-
-### 「〇〇を知りたい」別ガイド
-
-<details>
-<summary><strong>🚀 「今すぐ開発を始めたい！」</strong></summary>
-
-→ コレから読む：
-1. [QUICKSTART_SESSION4.md](guides/QUICKSTART_SESSION4.md) - 30秒で準備
-2. [detailed_spec_sw.md](specs/detailed_spec_sw.md) - 環境セットアップ
-3. [CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) - コード理解
-</details>
-
-<details>
-<summary><strong>📖 「プロジェクトの全体像を理解したい」</strong></summary>
-
-→ コレから読む：
-1. [basic_spec.md](specs/basic_spec.md) - プロジェクト概要 (5分)
-2. [detailed_spec_hw.md](specs/detailed_spec_hw.md) - ハードウェア仕様 (15分)
-3. [detailed_spec_sw.md](specs/detailed_spec_sw.md) - ソフトウェア仕様 (20分)
-</details>
-
-<details>
-<summary><strong>💻 「コードの構造を理解したい」</strong></summary>
-
-→ コレから読む：
-1. [CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) - コード完全解説 ⭐ **推奨**
-2. [CODE_REFERENCE.md](code/CODE_REFERENCE.md) - API リファレンス (仕様確認用)
-3. [TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) - よくあるエラー
-</details>
-
-<details>
-<summary><strong>🔧 「動作しない、エラーが出た」</strong></summary>
-
-→ コレから読む：
-1. [TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) - デバッグ手順
-2. [HARDWARE_VALIDATION.md](troubleshooting/HARDWARE_VALIDATION.md) - ハードウェア確認
-3. [PERFORMANCE.md](troubleshooting/PERFORMANCE.md) - パフォーマンス測定
-</details>
-
-<details>
-<summary><strong>🎓 「リファクタリング・改造方法を知りたい」</strong></summary>
-
-→ コレから読む：
-1. [STAGE_4_REFACTORING_HANDOVER.md](guides/STAGE_4_REFACTORING_HANDOVER.md) - Task 3-5 詳細ガイド
-2. [SESSION4_COMPLETION_REPORT.md](sessions/SESSION4_COMPLETION_REPORT.md) - 最新の改造内容
-3. [CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) - 設計思想の深掘り
-</details>
-
-<details>
-<summary><strong>🚀 「次のフェーズ（拡張）について知りたい」</strong></summary>
-
-→ コレから読む：
-1. [future_plan.md](future/future_plan.md) - 将来の拡張計画
-2. [PHASE3_EXTENSION_PLAN.md](future/PHASE3_EXTENSION_PLAN.md) - Web UI・ログ機能
-</details>
-
-<details>
-<summary><strong>📊 「開発の過程・セッション履歴を知りたい」</strong></summary>
-
-→ コレから読む：
-1. [SESSION4_COMPLETION_REPORT.md](sessions/SESSION4_COMPLETION_REPORT.md) - 最新セッション完了報告
-2. [STAGE2_3_COMPLETION_SUMMARY.md](sessions/STAGE2_3_COMPLETION_SUMMARY.md) - 直前のステージ完了
-3. [SESSION3_FINAL_REPORT.md](sessions/SESSION3_FINAL_REPORT.md) - Session 3 の記録
-</details>
+**CHANGELOG**: See [CHANGELOG.md](CHANGELOG.md) for technical change history.  
+**Release Notes**: See the [project root README](../README.md) for v1.0.0 release overview.
 
 ---
 
-## 📚 ドキュメント一覧 (カテゴリー別)
+##  ドキュメントを探す
 
-### **🏁 入口ドキュメント** (ここから始める)
+### 「何をしたいか」で選ぶ
+
+| 目的 | 最初に読むファイル |
+|------|------------------|
+|  **プロジェクトを引き継いで使いたい** | [guides/FINAL_HANDOVER_GUIDE.md](guides/FINAL_HANDOVER_GUIDE.md)  |
+|  **ハードウェアを組み立てたい** | [specs/detailed_spec_hw.md](specs/detailed_spec_hw.md) |
+|  **開発環境をセットアップしたい** | [specs/detailed_spec_sw.md](specs/detailed_spec_sw.md) |
+|  **コードの設計思想を理解したい** | [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) |
+|  **APIや実装詳細を調べたい** | [code/IMPLEMENTATION_GUIDE.md](code/IMPLEMENTATION_GUIDE.md) |
+|  **エラーを解決したい** | [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) |
+|  **テスト結果を確認したい** | [INTEGRATION_TEST_RESULTS.md](INTEGRATION_TEST_RESULTS.md) |
+|  **将来の拡張候補を知りたい** | [KNOWN_ISSUES_AND_FUTURE_PLANS.md](KNOWN_ISSUES_AND_FUTURE_PLANS.md) |
+
+---
+
+##  ドキュメント一覧
+
+###  入口ドキュメント
+
 | ファイル | 説明 | 読む時間 |
 |---------|------|--------|
-| **README.md** | このドキュメント (全体ナビゲーション) | 5分 |
-| **INDEX.md** | 全ドキュメント一覧表 | 2分 |
+| [INDEX.md](INDEX.md) | 全ドキュメント一覧 | 2分 |
+| [KNOWN_ISSUES_AND_FUTURE_PLANS.md](KNOWN_ISSUES_AND_FUTURE_PLANS.md) | v1.0.0 既知制限と将来計画 | 15分 |
+| [INTEGRATION_TEST_RESULTS.md](INTEGRATION_TEST_RESULTS.md) | 33/33 PASS 統合テスト結果 | 10分 |
+| [CHANGELOG.md](CHANGELOG.md) | 技術的変更履歴 | 5分 |
 
-### **📋 仕様書** (プロジェクト理解)
+###  仕様書
+
 | ファイル | 説明 | 読む時間 |
 |---------|------|--------|
-| **[basic_spec.md](specs/basic_spec.md)** | ⭐ プロジェクト基本仕様 | 10分 |
-| **[detailed_spec_hw.md](specs/detailed_spec_hw.md)** | ハードウェア詳細仕様・組み立て手順 | 20分 |
-| **[detailed_spec_sw.md](specs/detailed_spec_sw.md)** | ソフトウェア詳細仕様・セットアップ | 25分 |
+| [specs/basic_spec.md](specs/basic_spec.md) |  プロジェクト全体概要部品一覧 | 10分 |
+| [specs/detailed_spec_hw.md](specs/detailed_spec_hw.md) | ハードウェア詳細 (配線組み立て) | 20分 |
+| [specs/detailed_spec_sw.md](specs/detailed_spec_sw.md) | ソフトウェア詳細 (環境構築動作確認) | 25分 |
+| [UI_LAYOUT_DESIGN.md](UI_LAYOUT_DESIGN.md) | LCD 画面レイアウト設計 | 10分 |
 
-### **💻 コード解説** (開発・保守)
+###  コード解説
+
 | ファイル | 説明 | 読む時間 |
 |---------|------|--------|
-| **[CODE_EXPLANATION.md](code/CODE_EXPLANATION.md)** | ⭐ コード完全解説書（最高品質） | 45分 |
-| **[CODE_REFERENCE.md](code/CODE_REFERENCE.md)** | API リファレンス (辞書的用途) | 随時参照 |
+| [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) |  設計思想「なぜそう作ったか」 | 45分 |
+| [code/IMPLEMENTATION_GUIDE.md](code/IMPLEMENTATION_GUIDE.md) | API仕様グローバル構造体タスク実装 | 30分 |
 
-### **🚀 開発ガイド** (実装方法)
+###  ガイド
+
 | ファイル | 説明 | 読む時間 |
 |---------|------|--------|
-| **[QUICKSTART_SESSION4.md](guides/QUICKSTART_SESSION4.md)** | ⭐ 急ぎの開発者向け30秒ガイド | 5分 |
-| **[STAGE_4_REFACTORING_HANDOVER.md](guides/STAGE_4_REFACTORING_HANDOVER.md)** | Task 3-5 実装ガイド（詳細） | 30分 |
-| **[HANDOVER_CHECKLIST.md](guides/HANDOVER_CHECKLIST.md)** | チェックリスト形式の開発確認 | 随時 |
+| [guides/FINAL_HANDOVER_GUIDE.md](guides/FINAL_HANDOVER_GUIDE.md) |  引き継ぎガイド (初心者向け推奨) | 60分 |
 
-### **🔧 トラブルシューティング** (問題解決)
+###  トラブルシューティング
+
 | ファイル | 説明 | 読む時間 |
 |---------|------|--------|
-| **[TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md)** | ⭐ よくあるエラーと対処法 | 10分 |
-| **[HARDWARE_VALIDATION.md](troubleshooting/HARDWARE_VALIDATION.md)** | ハードウェア動作確認 | 15分 |
-| **[PERFORMANCE.md](troubleshooting/PERFORMANCE.md)** | パフォーマンス測定・最適化 | 15分 |
-
-### **📈 セッション履歴 / 完了報告** (開発過程の記録)
-| ファイル | 説明 | 読む時間 |
-|---------|------|--------|
-| **[SESSION_HISTORY.md](_navigation/SESSION_HISTORY.md)** | ⭐ セッション履歴ナビゲーション（最初に読む） | 5分 |
-| **[SESSION4_COMPLETION_REPORT.md](sessions/SESSION4_COMPLETION_REPORT.md)** | 最新: Session 4 完了報告 | 15分 |
-| **[STAGE2_3_COMPLETION_SUMMARY.md](sessions/STAGE2_3_COMPLETION_SUMMARY.md)** | Stage 2-3 完了報告 | 15分 |
-| **[SESSION3_FINAL_REPORT.md](sessions/SESSION3_FINAL_REPORT.md)** | Session 3 完了報告（参考） | 10分 |
-| **[_LEGACY_REFERENCE_ONLY.md](reports/_LEGACY_REFERENCE_ONLY.md)** | ⚠️ 廃止ドキュメント説明（必ず読して！） | 5分 |
-
-### **🎓 学習資料 / 拡張計画** (参考・将来)
-| ファイル | 説明 | 読む時間 |
-|---------|------|--------|
-| **[future_plan.md](future/future_plan.md)** | 将来の拡張・改善案 | 10分 |
-| **[PHASE3_EXTENSION_PLAN.md](future/PHASE3_EXTENSION_PLAN.md)** | Web UI・ログ機能の計画 | 15分 |
-| **[LEARNING_LOG_PLC_to_CPP.md](future/LEARNING_LOG_PLC_to_CPP.md)** | PLC→C++ 学習ログ（個人向け） | 随時 |
+| [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) |  症状別デバッグ手順 (7症状) | 10分 |
+| [troubleshooting/HARDWARE_VALIDATION.md](troubleshooting/HARDWARE_VALIDATION.md) | ハードウェア動作確認手順 | 15分 |
+| [troubleshooting/PERFORMANCE.md](troubleshooting/PERFORMANCE.md) | パフォーマンス測定検証方法 | 15分 |
 
 ---
 
-## 🎯 開発フロー別ドキュメント
+##  引き継ぎ担当者向けスタートガイド
 
-### **新規開発者がジョインした場合**
-1. README.md (このファイル) を読む
-2. [specs/basic_spec.md](specs/basic_spec.md) で全体像を把握
-3. [specs/detailed_spec_hw.md](specs/detailed_spec_hw.md) + [specs/detailed_spec_sw.md](specs/detailed_spec_sw.md) でセットアップ
-4. [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) でコード理解
-5. [guides/QUICKSTART_SESSION4.md](guides/QUICKSTART_SESSION4.md) で実装開始
+1. **まずここから**  プロジェクト root の [README.md](../README.md) を読む（5分）
+2. **環境構築**  [specs/detailed_spec_sw.md](specs/detailed_spec_sw.md)（25分）
+3. **ハードウェア確認**  [specs/detailed_spec_hw.md](specs/detailed_spec_hw.md)（20分）
+4. **コード理解**  [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md)（45分）
+5. **詳細仕様**  [code/IMPLEMENTATION_GUIDE.md](code/IMPLEMENTATION_GUIDE.md)（30分）
+6. **問題が起きたら**  [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md)
 
-**所要時間**: 約 2-3 時間
-
-### **バグ修正・小規模改造の場合**
-1. [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) で問題を絞り込む
-2. [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) の該当セクションを確認
-3. コードを修正・検証
-4. [guides/HANDOVER_CHECKLIST.md](guides/HANDOVER_CHECKLIST.md) でチェック
-
-**所要時間**: 30分～2時間
-
-### **大規模リファクタリング・拡張の場合**
-1. [guides/STAGE_4_REFACTORING_HANDOVER.md](guides/STAGE_4_REFACTORING_HANDOVER.md)（または最新計画）で設計確認
-2. [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) で現在設計を理解
-3. [future/future_plan.md](future/future_plan.md) / [future/PHASE3_EXTENSION_PLAN.md](future/PHASE3_EXTENSION_PLAN.md) で拡張方針確認
-4. [sessions/SESSION4_COMPLETION_REPORT.md](sessions/SESSION4_COMPLETION_REPORT.md) で最新の実装状況把握
-5. 開発開始
-
-**所要時間**: 3-5 時間
+総所要時間: 約 2〜3 時間
 
 ---
 
-## 🚀 現在のプロジェクト状態
+##  v1.0.0 実装済み機能
 
-### **実装済み機能**
-- ✅ MAX31855 温度センサ読み取り
-- ✅ Low-Pass フィルタリング
-- ✅ Welford法による統計計算（平均・標準偏差）
-- ✅ ヒステリシス付きアラーム判定
-- ✅ EEPROM による設定値永続化
-- ✅ M5Stack LCD への表示
-- ✅ 3ボタン操作インターフェース
-- ✅ Code Quality Refactoring (Stage 2-B 完了)
-
-### **現在のステージ**
-**Stage 2-B**: Code Quality Refactoring ✅ COMPLETE
-- Task 1: Magic Number定数化 ✅
-- Task 2: ボタン処理・統計関数化 ✅
-- Task 3: UI描画分割 ✅
-- Task 4: EEPROM独立化 ✅
-- Task 5: ドキュメント充実 ✅
-
-### **次のステージ** (計画)
-**Stage 3**: Web UI・ロギング機能
-**Stage 4**: マルチセンサ・ワイヤレス対応
+| 機能 | 状態 |
+|------|------|
+| MAX31855 K型熱電対 読み取り |  |
+| Welford法 リアルタイム統計（平均標準偏差最大最小） |  |
+| ヒステリシス付き HI/LO アラーム |  |
+| MicroSD CSV ロギング（バッファリング） |  |
+| EEPROM アラーム設定永続化 |  |
+| M5Stack LCDリアルタイム表示 |  |
+| 3タスク設計 (IO 10ms / Logic 50ms / UI 200ms) |  |
+| 統合テスト 33/33 PASS |  |
 
 ---
 
-## 📞 質問・問題がある場合
+##  問題があった場合
 
-1. **実装方法がわからない** → [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) を確認
-2. **エラーが出ている** → [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md) で原因を探す
-3. **ハードウェアがおかしい** → [troubleshooting/HARDWARE_VALIDATION.md](troubleshooting/HARDWARE_VALIDATION.md) で確認
-4. **仕様を確認したい** → [specs/basic_spec.md](specs/basic_spec.md) or [specs/detailed_spec_*.md](specs/)
-5. **それでも解決しない** → [sessions/](sessions/) 内の各セッション報告書で過去に同じ問題がないか検索
-
----
-
-## ⚠️ 重要: ドキュメント統廃合について
-
-**2026年2月26日に以下のドキュメント整理を実施しました：**
-
-### 廃止されたドキュメント
-以下のファイルは **計画実施完了済み** のため、他のドキュメント内容に統合されました：
-
-- ❌ **REFACTORING_PLAN.md** → [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md) に統合
-- ❌ **REFACTORING_PROGRESS.md** → [sessions/SESSION4_COMPLETION_REPORT.md](sessions/SESSION4_COMPLETION_REPORT.md) に統合
-- ⚠️ **HANDOVER_PHASE2-3.md** → [reports/_LEGACY_REFERENCE_ONLY.md](reports/_LEGACY_REFERENCE_ONLY.md) で参考管理
+1. **エラーが出ている**  [troubleshooting/TROUBLESHOOTING.md](troubleshooting/TROUBLESHOOTING.md)
+2. **ハードウェアが怪しい**  [troubleshooting/HARDWARE_VALIDATION.md](troubleshooting/HARDWARE_VALIDATION.md)
+3. **コードの動きがわからない**  [code/CODE_EXPLANATION.md](code/CODE_EXPLANATION.md)
+4. **APIを調べたい**  [code/IMPLEMENTATION_GUIDE.md](code/IMPLEMENTATION_GUIDE.md)
+5. **仕様を確認したい**  [specs/](specs/)
 
 ---
 
-### ✅ セッション履歴の新規体系化
-
-セッション報告の理解を容易にするため、以下を整備しました:
-
-- 📋 [`_navigation/SESSION_HISTORY.md`](_navigation/SESSION_HISTORY.md) - セッション履歴の時系列ナビゲーション
-- 📚 [`reports/_LEGACY_REFERENCE_ONLY.md`](reports/_LEGACY_REFERENCE_ONLY.md) - 廃止・参考ドキュメント説明
-
-**必ず読むべき**: 次セッション開始時に `_navigation/SESSION_HISTORY.md` → 最新レポート という流れで確認してください。
-
----
-
-## 💾 更新履歴
+##  更新履歴
 
 | 日付 | 内容 |
 |------|------|
-| 2026-02-26 | ドキュメント統廃合完了（REFACTORING_PLAN/PROGRESS 他廃止） |
-| 2026-02-26 | SESSION_HISTORY.md 作成（セッション履歴体系化） |
-| 2026-02-26 | _LEGACY_REFERENCE_ONLY.md 作成（廃止ドキュメント管理） |
-| 2026-02-26 | README.md / INDEX.md 最新化 |
-| 2026-02-26 | SESSION4_COMPLETION_REPORT.md: Stage 2-B 完了 |
-| 2026-02-26 | CODE_EXPLANATION.md: Stage 2-B セクション追加 |
-| 2026-02-27 | 単一チャネル化・SDカードリトライロジックをドキュメント反映 |
-
----
-
-## 🎊 ドキュメント品質基準
-
-このプロジェクトのドキュメントは以下の基準で作成されています：
-
-- ✅ **正確性**: コードと同期した最新情報
-- ✅ **完全性**: 新規開発者が単独で開発可能なレベル
-- ✅ **読みやすさ**: 図解・表・目次を活用
-- ✅ **保守性**: セッション単位で更新管理
-- ✅ **アクセス性**: カテゴリー別・目的別索引
-
----
-
-**ドキュメントの品質は、プロジェクトの長期的な成功を左右します。**  
-わからないことがあれば、まずドキュメントを確認し、不足していればリクエストしてください。
-
+| 2026-02-27 | v1.0.0 リリース / 統合テスト 33/33 PASS |
+| 2026-02-27 | docs/ 最終整理（旧開発過程ドキュメント削除） |
+| 2026-02-27 | FINAL_HANDOVER_GUIDE.md / IMPLEMENTATION_GUIDE.md 新規作成 |
+| 2026-02-27 | KNOWN_ISSUES_AND_FUTURE_PLANS.md 新規作成 |
+| 2026-02-27 | Welford計算SD書き込みタイミング修正 |
+| 2026-02-26 | リファクタリング完了 (EEPROM独立化UI分割定数化) |
