@@ -51,15 +51,18 @@
 プロジェクトルートにある `platformio.ini` を開き、内容を以下に**全て置き換えて保存**:
 
 ```ini
-[env:m5stack-core-esp32]
+[env:m5stack]
 platform = espressif32
 board = m5stack-core-esp32
 framework = arduino
-upload_speed = 921600
+upload_speed = 115200
 monitor_speed = 115200
+build_flags =
+    -DCORE_DEBUG_LEVEL=0
+    -Os
 lib_deps =
-    m5stack/M5Stack@^0.4.6
-    adafruit/Adafruit MAX31855 library@^1.4.2
+    m5stack/M5Stack @ ^0.4.6
+    adafruit/Adafruit MAX31855 library @ ^1.1.2
 ```
 
 4. 保存後、画面下部に「**PlatformIO: Installing dependencies...**」と表示される
@@ -75,21 +78,27 @@ lib_deps =
 
 ```
 temp_eval_tool/
-├── platformio.ini           ← 上記で編集済み
+├── platformio.ini              ← PlatformIO 設定
 ├── include/
-│   ├── Global.h             ← 新規作成（型・定数・グローバル定義）
-│   └── Tasks.h              ← 新規作成（タスク関数宣言）
+│   ├── Global.h                ← 共通型・定数・GlobalData 構造体・ピン定義
+│   ├── Tasks.h                 ← タスク関数宣言
+│   ├── EEPROMManager.h         ← EEPROM 操作クラス（アラーム閾値永続保存）
+│   └── SDManager.h             ← SD カード操作クラス宣言
 ├── src/
-│   ├── main.cpp             ← デフォルトで存在（内容を置き換え）
-│   ├── Tasks.cpp            ← 新規作成（IO / Logic / UI タスク実装）
-│   ├── DisplayManager.h/.cpp← 新規作成（UI層クラス）
-│   ├── IOController.h/.cpp  ← 新規作成（IO層クラス）
-│   └── MeasurementCore.h/.cpp← 新規作成（Logic層クラス・ユニットテスト対応）
-└── lib/                     ← ライブラリ（自動管理）
+│   ├── main.cpp                ← setup / loop
+│   ├── Tasks.cpp               ← IO / Logic / UI タスク実装（アラーム・SD記録含む）
+│   ├── DisplayManager.h/.cpp   ← UI 表示管理クラス
+│   ├── IOController.h/.cpp     ← IO 制御クラス（ユニットテスト対応）
+│   ├── MeasurementCore.h/.cpp  ← 計測ロジッククラス（ユニットテスト対応）
+│   ├── EEPROMManager.cpp       ← EEPROM 実装
+│   └── SDManager.cpp           ← SD カード CSV 記録実装
+└── test/
+    └── test_measurement_core.cpp  ← ネイティブユニットテスト
 ```
 
-> **層構造の考え方**: `Global.h` → 共通型・定数 / `Tasks.cpp` → 3層タスクのエントリポイント /
-> `DisplayManager` → UI層 / `IOController` → IO層 / `MeasurementCore` → Logic層
+> **層構造の考え方**: `Global.h` → 共通型・定数 / `Tasks.cpp` → 3層タスクのエントリーポイント /
+> `DisplayManager` → UI層 / `IOController` → IO層 / `MeasurementCore` → Logic層 /
+> `EEPROMManager` → アラーム設定永続化 / `SDManager` → CSV 記録
 
 ---
 
@@ -101,174 +110,130 @@ temp_eval_tool/
 
 `include` フォルダを右クリック → 「**新しいファイル**」→ ファイル名「**Global.h**」
 
-```cpp
-#ifndef GLOBAL_H
-#define GLOBAL_H
+> **注**: 以下は設計の要点を抜粋した概要です。完全なコードは `include/Global.h` を参照してください。
 
+```cpp
+#pragma once
 #include <M5Stack.h>
 #include <Adafruit_MAX31855.h>
+#include <EEPROM.h>
+#include <FS.h>
+#include <SD.h>
+#include "EEPROMManager.h"
 
-// --- ピン定義 ---
-#define MAX31855_CS   5    // チップセレクトのみ使用（ハードウェアSPIでLCDとバス共有）
-// SCK=GPIO18, MISO=GPIO19 はハードウェアSPIが自動管理
+// ── ピン定義 ────────────────────────────────────────────────────────────
+constexpr uint8_t MAX31855_CS = 5;   // センサ CS (GPIO5)
+// SD カード CS は TFCARD_CS_PIN (GPIO4) — M5Stack 内部ハードウェア配線
 
-// --- タイマー周期 (ms) ---
-constexpr unsigned long IO_CYCLE_MS    = 10UL;   // IO層: センサ読取、ボタン入力
-constexpr unsigned long LOGIC_CYCLE_MS = 50UL;   // Logic層: 状態遷移、演算
-constexpr unsigned long UI_CYCLE_MS    = 200UL;  // UI層: 画面描画
+// ── タイマー周期 [ms] ───────────────────────────────────────────────────
+constexpr unsigned long IO_CYCLE_MS         =  10UL;  // IO 層
+constexpr unsigned long LOGIC_CYCLE_MS      =  50UL;  // Logic 層
+constexpr unsigned long UI_CYCLE_MS         = 200UL;  // UI 層
+constexpr unsigned long TC_READ_INTERVAL_MS = 500UL;  // MAX31855 サンプリング
 
-// --- フィルタ定数 ---
-constexpr float FILTER_ALPHA = 0.1f;  // 1次遅れフィルタ係数 (0.0-1.0)
+// ── フィルタ / アラーム定数 ──────────────────────────────────────────────
+constexpr float FILTER_ALPHA     = 0.1f;
+constexpr float HI_ALARM_TEMP    = 600.0f;   // 上限デフォルト [°C]
+constexpr float LO_ALARM_TEMP    = 400.0f;   // 下限デフォルト [°C]
+constexpr float ALARM_HYSTERESIS =   5.0f;   // ヒステリシス幅 [°C]
 
-// --- 状態定義 ---
-// enum class により名前がグローバル空間に漏れない (State::IDLE のようにアクセス)
+// ── 状態定義 ────────────────────────────────────────────────────────────
 enum class State : uint8_t {
-  IDLE,
-  RUN,
-  RESULT
+  IDLE,           // 待機中
+  RUN,            // 計測中
+  RESULT,         // 結果表示中
+  ALARM_SETTING   // アラーム閾値設定中
 };
 
-// --- グローバルデータ ---
+// ── グローバルデータ構造体 ────────────────────────────────────────────
 struct GlobalData {
-  // データレジスタ群
-  float  D_RawPV;        // 生の温度測定値
-  float  D_FilteredPV;   // フィルタ後の温度値
-  double D_Sum;          // 積算値 (平均計算用)
-  long   D_Count;        // サンプル数
-  float  D_Average;      // 計算された平均温度
+  // 計測データ (D_ = データレジスタ相当)
+  float  D_RawPV;            // 生の温度測定値 [°C]
+  float  D_FilteredPV;       // フィルタ後の温度値 [°C]
+  double D_Sum;              // 積算値 (平均計算用)
+  long   D_Count;            // サンプル数
+  float  D_Average;          // 平均温度 [°C]
 
-  // 内部リレー群
-  State  M_CurrentState;   // 現在の状態
-  bool   M_BtnA_Pressed;   // ボタンA立ち上がりエッジ検出
-  // M_BtnA_Prev は IO_Task の static ローカル変数へ移動済み
+  // Phase 2: Welford 統計
+  float  D_Max;              // 最高温度 [°C]
+  float  D_Min;              // 最低温度 [°C]
+  float  D_Range;            // Max - Min [°C]
+  double D_M2;               // Welford M2 累積 (分散計算用)
+  float  D_StdDev;           // 標準偏差 σ [°C]
+
+  // 内部リレー (M_ = 内部リレー相当)
+  State  M_CurrentState;     // 現在の状態
+  bool   M_BtnA_Pressed;     // BtnA 立ち上がりエッジ
+  bool   M_BtnB_Pressed;     // BtnB 立ち上がりエッジ (ページング / 設定進入)
+  bool   M_BtnC_Pressed;     // BtnC 立ち上がりエッジ (設定値変更)
+  int    M_ResultPage;       // RESULT 画面ページ (0=平均, 1=統計詳細)
+
+  // Phase 3: アラーム
+  bool   M_HiAlarm;          // 上限アラーム中フラグ
+  bool   M_LoAlarm;          // 下限アラーム中フラグ
+  float  D_HI_ALARM_CURRENT; // 現在の上限閾値 [°C] (EEPROM 保存)
+  float  D_LO_ALARM_CURRENT; // 現在の下限閾値 [°C] (EEPROM 保存)
+  int    M_SettingIndex;     // 設定モード: 0=HI 側, 1=LO 側
+
+  // Phase 4: SD カード
+  bool     M_SDReady;        // SD 検出フラグ
+  bool     M_SDError;        // SD エラーフラグ
+  char     M_CurrentDataFile[32]; // 現在のファイル名 (DATA_xxxx.csv)
+  uint16_t M_SDWriteCounter; // 書き込みカウンタ (10 サンプル毎)
+  uint32_t M_RunStartTime;   // RUN 開始時刻 (millis())
 };
 
-// 外部参照宣言
-extern GlobalData G;
+extern GlobalData        G;
 extern Adafruit_MAX31855 thermocouple;
 
-// タスク関数宣言
 void initGlobalData();
 void IO_Task();
 void Logic_Task();
 void UI_Task();
-
-#endif
+void EEPROM_LoadToGlobal();
+void updateAlarmFlags(float currentTemp, float hiThreshold, float loThreshold,
+                      float hysteresis, bool& hiFlag, bool& loFlag);
 ```
 
 ### 2. src/Tasks.cpp（新規作成）
 
 `src` フォルダを右クリック → 「**新しいファイル**」→ ファイル名「**Tasks.cpp**」
 
+> **注**: 実装は `src/Tasks.cpp` を参照（約 1500 行）。以下は各タスクの処理の概要です。
+
 ```cpp
-#include "Global.h"
+// ── IO_Task (10ms 周期) ────────────────────────────────────────────────────
+// - MAX31855 から 500ms 間隔で readCelsius()。NaN 時は最大 3 回リトライ
+// - 1 次遅れフィルタ: D_FilteredPV = D_FilteredPV*(1-α) + rawPV*α
+// - ヒステリシス付き HI/LO アラーム判定 → M_HiAlarm / M_LoAlarm 更新
+// - BtnA / BtnB / BtnC の立ち上がりエッジ検出 → M_Btn*_Pressed フラグ
 
-// グローバル変数の実体
-GlobalData G;
-Adafruit_MAX31855 thermocouple(MAX31855_CS);
+// ── Logic_Task (50ms 周期) ────────────────────────────────────────────────
+// BtnA: IDLE → RUN → RESULT → IDLE の状態遷移
+//       RUN 開始時に統計をリセット、RESULT 遷移時に SD ファイルをクローズ
+// BtnB: IDLE で ALARM_SETTING 進入 / RESULT でページ切替 (Page0 ↔ Page1)
+// BtnC: ALARM_SETTING で D_HI/LO_ALARM_CURRENT を SETTING_STEP (5°C) 変更
+// RUN 中: Welford 法で D_Sum, D_Count, D_M2, D_Max, D_Min を更新
+//         10 サンプル毎に SDManager::writeData() で CSV 書き込み
+// RESULT 遷移: D_Average, D_StdDev, D_Range を確定 → SDManager::flush()/closeFile()
 
-// ===========  IO Layer (10ms周期) ==============
-void IO_Task() {
-  static unsigned long lastTcRead = 0;
-  const unsigned long  now        = millis();
-
-  if (now - lastTcRead >= TC_READ_INTERVAL_MS) {
-    lastTcRead = now;
-    const float rawTemp = thermocouple.readCelsius();
-    if (!isnan(rawTemp)) {
-      G.D_RawPV = rawTemp;
-      // 1次遅れフィルタ: y[n] = y[n-1] * (1-α) + x[n] * α
-      G.D_FilteredPV = isnan(G.D_FilteredPV)
-                     ? rawTemp
-                     : G.D_FilteredPV * (1.0f - FILTER_ALPHA)
-                       + rawTemp      *           FILTER_ALPHA;
-    }
-  }
-
-  M5.update();
-  static bool btnPrev = false;          // エッジ検出用前回値
-  const bool  btnNow  = M5.BtnA.isPressed();
-  if (btnNow && !btnPrev) {
-    G.M_BtnA_Pressed = true;
-  }
-  btnPrev = btnNow;
-}
-
-// ========== Logic Layer (50ms周期) ==========
-void Logic_Task() {
-  if (G.M_BtnA_Pressed) {
-    G.M_BtnA_Pressed = false;
-
-    switch (G.M_CurrentState) {
-      case State::IDLE:
-        G.D_Sum           = 0.0;
-        G.D_Count         = 0;
-        G.M_CurrentState  = State::RUN;
-        break;
-
-      case State::RUN:
-        G.D_Average = (G.D_Count > 0)
-                    ? static_cast<float>(G.D_Sum / G.D_Count)
-                    : G.D_FilteredPV;
-        G.M_CurrentState = State::RESULT;
-        break;
-
-      case State::RESULT:
-        G.M_CurrentState = State::IDLE;
-        break;
-    }
-  }
-
-  if (G.M_CurrentState == State::RUN && !isnan(G.D_FilteredPV)) {
-    G.D_Sum += G.D_FilteredPV;
-    G.D_Count++;
-  }
-}
-
-// ========== UI Layer (200ms周期) ==========
-void UI_Task() {
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setCursor(0, 0);
-  M5.Lcd.setTextSize(2);
-
-  M5.Lcd.print("STATE: ");
-  switch (G.M_CurrentState) {
-    case State::IDLE:   M5.Lcd.println("IDLE  ");  break;
-    case State::RUN:    M5.Lcd.println("RUN   ");  break;
-    case State::RESULT: M5.Lcd.println("RESULT");  break;
-  }
-  M5.Lcd.println();
-
-  M5.Lcd.print("Temp: ");
-  if (isnan(G.D_FilteredPV)) {
-    M5.Lcd.println("ERROR");
-  } else {
-    M5.Lcd.print(G.D_FilteredPV, 1);
-    M5.Lcd.println(" C");
-  }
-  M5.Lcd.println();
-
-  if (G.M_CurrentState == State::RUN) {
-    M5.Lcd.print("Samples: ");
-    M5.Lcd.println(G.D_Count);
-  } else if (G.M_CurrentState == State::RESULT) {
-    M5.Lcd.print("Average: ");
-    M5.Lcd.print(G.D_Average, 1);
-    M5.Lcd.println(" C");
-  }
-
-  M5.Lcd.setCursor(0, 220);
-  M5.Lcd.setTextSize(1);
-  M5.Lcd.println("[BtnA] Start/Stop/Reset");
-}
+// ── UI_Task (200ms 周期) ──────────────────────────────────────────────────
+// IDLE         : 現在温度 / アラーム設定値 / SD 状態（緑=OK / 赤=エラー）
+// RUN          : 現在温度 / サンプル数 / 経過時間 / アラーム状態
+// RESULT Page0 : 平均値 / サンプル数
+// RESULT Page1 : 標準偏差 / Range / Max / Min
+// ALARM_SETTING: HI 閾値 / LO 閾値（BtnB で切替、BtnC で変更、BtnA で保存・終了）
 ```
 
 ### 3. src/main.cpp（内容を置き換え）
 
 既存の `src/main.cpp` の内容を**全て削除**し、以下に置き換え:
 
+> **注**: 以下は実際の `src/main.cpp` の要点を抜粋したものです。完全な実装はソースファイルを参照してください。
+
 ```cpp
 #include "Global.h"
+#include "SDManager.h"
 
 namespace {
   unsigned long T_IO_Last    = 0;
@@ -276,46 +241,53 @@ namespace {
   unsigned long T_UI_Last    = 0;
 }
 
-// ※ initGlobalData() の実装は Tasks.cpp にある
-
 void setup() {
   M5.begin();
   M5.Power.begin();
-  Serial.begin(115200);
+  Serial.begin(SERIAL_BAUD_RATE);   // 115200 bps
 
   M5.Lcd.setTextSize(2);
   M5.Lcd.println("Temperature Eval Tool");
-  M5.Lcd.println();
+  M5.Lcd.println("Refactored Version");
 
   initGlobalData();
 
-  // MAX31855 接続確認 (最大5回リトライ)
-  // MAX31855 はパワーオン後最低 100ms の安定待ちが必要
-  delay(200);
-  Serial.println("Checking MAX31855...");
-  constexpr int MAX_RETRY = 5;
+  // EEPROM からアラーム閾値を読み込む
+  EEPROMManager::init(EEPROM_SIZE);
+  EEPROM_LoadToGlobal();
+
+  // MAX31855 接続確認（最大 MAX_SETUP_RETRIES=5 回リトライ）
+  delay(SETUP_SENSOR_DELAY_MS);     // 200ms: パワーオン安定待ち
+  SPI.begin();
+  pinMode(MAX31855_CS, OUTPUT);
+  digitalWrite(MAX31855_CS, HIGH);
   float testTemp = NAN;
-  for (int i = 0; i < MAX_RETRY; ++i) {
-    IO_Task();                  // IO層でセンサーを読み取らせる
-    testTemp = G.D_FilteredPV;  // フィルタ後の値を取得
-    Serial.printf("  try %d -> %s\n", i,
-                  isnan(testTemp) ? "NAN" : String(testTemp, 3).c_str());
+  for (int i = 0; i < MAX_SETUP_RETRIES; ++i) {
+    IO_Task();
+    testTemp = G.D_FilteredPV;
     if (!isnan(testTemp)) break;
     M5.Lcd.print('.');
-    delay(500);
+    delay(SETUP_RETRY_INTERVAL_MS); // 500ms
   }
   if (isnan(testTemp)) {
-    M5.Lcd.println();
-    M5.Lcd.println("ERROR: MAX31855");
-    M5.Lcd.println("Check wiring!");
-    // センサ未接続でも動作継続 (UI に ---.- C を表示)
+    M5.Lcd.println("\nERROR: MAX31855 — Check wiring!");
+    // センサ未接続でも継続動作（UI に ERROR 表示）
   } else {
-    G.D_FilteredPV = testTemp;  // フィルタ初期値を実測値で設定（収束時間短縮）
-    M5.Lcd.println();
-    M5.Lcd.println("MAX31855 OK");
+    G.D_FilteredPV = testTemp;      // フィルタ初期値を実測値で設定
+    M5.Lcd.println("\nMAX31855 OK");
   }
-  delay(1000);
+
+  // アラームフラグリセット（setup 中の IO_Task 呼び出しで立ったフラグをクリア）
+  G.M_HiAlarm = false;
+  G.M_LoAlarm = false;
+
+  delay(SETUP_FINAL_DELAY_MS);      // 1000ms
   M5.Lcd.fillScreen(BLACK);
+
+  // SD カード初期化
+  SDManager::init();                // CS=TFCARD_CS_PIN (GPIO4)
+  G.M_SDReady = SDManager::isReady();
+  G.M_SDError = !G.M_SDReady;
 }
 
 void loop() {
@@ -368,20 +340,22 @@ USB Type-C ケーブルで M5Stack と PC を接続します。
 
 以下を確認:
 
-1. 画面に「**Temperature Eval Tool**」と表示される
+1. 画面に「**Temperature Eval Tool**」「**Refactored Version**」と表示される
 2. 「**Checking MAX31855...**」→「**MAX31855 OK**」と表示される
 3. 「**STATE: IDLE**」と表示される
 4. 「**Temp: XX.X C**」に室温（20〜30℃程度）が表示される
+5. SD カードが正しく挿入されている場合、IDLE 画面に SD インジケーターが緑色で表示される
 
 ### 2. 状態遷移の確認
 
 1. M5Stack 正面下部の**左ボタン（BtnA）**を押す
 2. 「**STATE: RUN**」に切り替わる
-3. 「**Samples:**」の数値がカウントアップすることを確認
+3. 「**Samples:**」の数値がカウントアップすることを確認（SD 記録が自動開始）
 4. もう一度 **BtnA** を押す
 5. 「**STATE: RESULT**」に切り替わり、「**Average: XX.X C**」が表示される
-6. もう一度 **BtnA** を押す
-7. 「**STATE: IDLE**」に戻ることを確認
+6. **BtnB（中央ボタン）**を押す → 2ページ目に切り替わり、標準偏差・Range・Max/Min が表示される
+7. もう一度 **BtnA** を押す
+8. 「**STATE: IDLE**」に戺ることを確認
 
 ### 3. 平均値計算の確認
 
@@ -409,6 +383,9 @@ USB Type-C ケーブルで M5Stack と PC を接続します。
 | **LOGIC_CYCLE_MS** | 50ms  | サンプリング周期（50ms = 20サンプル/秒）  |
 | **UI_CYCLE_MS**    | 200ms | 画面更新周期。小さくすると表示がなめらか、ちらつく  |
 | **FILTER_ALPHA**   | 0.1   | フィルタ係数。小さくするとノイズ除去強化・追従性低下 |
+| **HI_ALARM_TEMP**  | 600.0℃ | 上限アラームの初期値（EEPROM に保存される） |
+| **LO_ALARM_TEMP**  | 400.0℃ | 下限アラームの初期値（EEPROM に保存される） |
+| **ALARM_HYSTERESIS** | 5.0℃ | ヒステリシス幅（ヱラつき誘発防止） |
 
 ### フィルタ係数の変更例
 
@@ -473,8 +450,8 @@ constexpr float FILTER_ALPHA = 0.2f;
 ```
 loop() が毎回呼ばれる中で、各タスクはタイマーで周期を管理
 
-IO_Task    (10ms)  → センサ読込 → フィルタ → ボタン読込
-Logic_Task (50ms)  → 状態遷移 → 積算（RUN中のみ）
+IO_Task    (10ms)  → センサ読込 → フィルタ → HI/LO アラーム判定 → BtnA/B/C 読込
+Logic_Task (50ms)  → 状態遷移 → Welford 統計計算 → SD CSV 書き込み
 UI_Task    (200ms) → 画面描画
 ```
 
@@ -482,37 +459,72 @@ UI_Task    (200ms) → 画面描画
 
 ```
 [IDLE] ──BtnA──> [RUN] ──BtnA──> [RESULT] ──BtnA──> [IDLE]
-  待機              計測中            平均値表示
-  D_Sum=0          D_Sum積算         D_Average表示
-  D_Count=0        D_Count++         (固定値)
+  待機              計測中            統計結果表示
+  D_Sum=0          Welford統計累積      Page0: 平均・サンプル数
+  D_Count=0        D_Count++            Page1: StdDev/Range/Max/Min
+  D_M2=0           SD CSV 記録          (BtnB でページ切替)
+    │
+    └──BtnB──> [ALARM_SETTING] ──BtnA(SAVE)──> [IDLE]
+                アラーム閾値設定
+                BtnB: HI/LO 切替
+                BtnC: 値 ±5℃ 変更
 ```
 
 #### データフロー
 
 ```
 MAX31855 (SPI)
-    ↓ 10ms周期
+    ↓ 500ms間隔で読取り (IO_Task 内)
 D_RawPV (生値)
-    ↓ ローパスフィルタ
+    ↓ 1 次遅れフィルタ (y[n] = y[n-1]*(1-α) + x[n]*α)
 D_FilteredPV (フィルタ後)
-    ↓ RUN状態のみ
-D_Sum += D_FilteredPV
-D_Count++
-    ↓ BtnA押下でRESULT遷移
+    ↓ IO_Task 内・毎回
+HI/LO アラーム判定 (ヒステリシス付き)
+    ↓ RUN 状態のみ (Logic_Task 内)
+Welford 統計累積:
+    D_Sum   += D_FilteredPV
+    D_Count  += 1
+    D_M2  ← Welford差分累積寄与
+    D_Max  = max(D_Max, D_FilteredPV)
+    D_Min  = min(D_Min, D_FilteredPV)
+    (10 サンプル毎) SDManager::writeData() → CSV 1 行追記
+    ↓ BtnA 押下で RESULT 遷移
 D_Average = D_Sum / D_Count
+D_StdDev  = sqrt(D_M2 / D_Count)
+D_Range   = D_Max - D_Min
+SDManager::flush() + closeFile()
 ```
 
 ### 変数一覧
 
-| 変数名                | 型      | 説明                      |
-| ------------------ | ------ | ----------------------- |
-| **D_RawPV**        | float  | センサから読み取った生の温度値         |
-| **D_FilteredPV**   | float  | フィルタ処理後の温度値（画面表示・積算に使用） |
-| **D_Sum**          | double | 温度の累積値（平均値計算用、64bit）    |
-| **D_Count**        | long   | サンプル数（32bit整数）          |
-| **D_Average**      | float  | 計算された平均値（RESULT状態で表示）   |
-| **M_CurrentState** | enum   | 現在の状態（IDLE/RUN/RESULT）  |
-| **M_BtnA_Pressed** | bool   | ボタン押下フラグ（エッジ検出済み）       |
+| 変数名                | 型      | 説明                              |
+| ------------------ | ------ | --------------------------------- |
+| **D_RawPV**        | float  | センサから読み取った生の温度値 [°C]        |
+| **D_FilteredPV**   | float  | フィルタ処理後の温度値（画面表示・積算に使用）   |
+| **D_Sum**          | double | 温度の累積値（平均値計算用、64bit）       |
+| **D_Count**        | long   | サンプル数                              |
+| **D_Average**      | float  | 計算された平均値（RESULT 状態で表示）      |
+| **D_Max**          | float  | 計測期間中の最高温度 [°C]           |
+| **D_Min**          | float  | 計測期間中の最低温度 [°C]           |
+| **D_Range**        | float  | Max - Min (温度変動幅) [°C]           |
+| **D_M2**           | double | Welford 法 二乗偏差累積（分散計算用）  |
+| **D_StdDev**       | float  | 標準偏差 σ [°C]                      |
+| **M_CurrentState** | enum   | 現在の状態（IDLE/RUN/RESULT/ALARM_SETTING） |
+| **M_BtnA_Pressed** | bool   | BtnA 押下フラグ（エッジ検出済み）           |
+| **M_BtnB_Pressed** | bool   | BtnB 押下フラグ（ページ切替／設定進入）      |
+| **M_BtnC_Pressed** | bool   | BtnC 押下フラグ（設定値変更）              |
+| **M_ResultPage**   | int    | RESULT 画面ページ (0=平均, 1=統計詳細)   |
+| **M_HiAlarm**      | bool   | 上限アラーム中フラグ                     |
+| **M_LoAlarm**      | bool   | 下限アラーム中フラグ                     |
+| **D_HI_ALARM_CURRENT** | float | 現在の上限閾値 [°C] (EEPROM 保存)  |
+| **D_LO_ALARM_CURRENT** | float | 現在の下限閾値 [°C] (EEPROM 保存)  |
+| **M_SettingIndex** | int    | 設定モード: 0=HI 側, 1=LO 側             |
+| **M_SDReady**      | bool   | SD 検出フラグ                          |
+| **M_SDError**      | bool   | SD エラーフラグ                        |
+| **M_CurrentDataFile** | char[32] | 現在の CSV ファイル名 (DATA_xxxx.csv) |
+| **M_SDWriteCounter** | uint16 | SD 書き込みカウンタ (10 サンプル毎)     |
+| **M_RunStartTime** | uint32 | RUN 開始時刻 (millis())                |
+| **M_SDBuffer**     | SDData | SD CSV 1 行分データバッファ              |
 
 ### タイミング図
 
@@ -532,4 +544,4 @@ D_Average = D_Sum / D_Count
 ---
 
 **作成**: Shimano
-**最終更新**: 2026年2月26日
+**最終更新**: 2026年3月3日
